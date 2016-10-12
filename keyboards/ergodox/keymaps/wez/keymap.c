@@ -3,7 +3,9 @@
 #include "ergodox.h"
 #include "debug.h"
 #include "action_layer.h"
+#ifdef MOUSEKEY_ENABLE
 #include "mousekey.h"
+#endif
 
 enum layer_id {
   BASE = 0, // default layer
@@ -37,13 +39,13 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  * ,--------------------------------------------------.           ,--------------------------------------------------.
  * |   =    |   1  |   2  |   3  |   4  |   5  | Copy |           | Paste|   6  |   7  |   8  |   9  |   0  |   -    |
  * |--------+------+------+------+------+-------------|           |------+------+------+------+------+------+--------|
- * | Tab    |   Q  |   W  |   E  |   R  |   T  |      |           |      |   Y  |   U  |   I  |   O  |   P  |   \    |
+ * | Tab    |   Q  |   W  |   E  |   R  |   T  |  [   |           |   ]  |   Y  |   U  |   I  |   O  |   P  |   \    |
  * |--------+------+------+------+------+------|      |           |      |------+------+------+------+------+--------|
  * |Esc/Ctrl|   A  |   S  |   D  |   F  |   G  |------|           |------|   H  |   J  |   K  |   L  |;/MDIA|  '"    |
- * |--------+------+------+------+------+------| MDIA |           | Ctrl |------+------+------+------+------+--------|
+ * |--------+------+------+------+------+------| Ctrl |           | Ctrl |------+------+------+------+------+--------|
  * |Shft/Caps|  Z  |   X  |   C  |   V  |   B  |      |           |      |   N  |   M  |   ,  |   .  |  Up  | RShift |
  * `--------+------+------+------+------+-------------'           `-------------+------+------+------+------+--------'
- *   | Grv  | MDIA | LGui |      |   /  |                                       |   [  |   ]  | Left | Down | Right|
+ *   | Grv  | MDIA | LGui |      | S+Gui|                                       | Left | Down | Up   | Down |      |
  *   `----------------------------------'                                       `----------------------------------'
  *                                        ,-------------.       ,-------------.
  *                                        | Alt  | LGui |       | LGui | Alt  |
@@ -56,19 +58,19 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 [BASE] = KEYMAP(
         // left hand
         KC_EQL,         KC_1,         KC_2,   KC_3,   KC_4,   KC_5,   F(FNCOPYCUT),
-        KC_TAB,         KC_Q,         KC_W,   KC_E,   KC_R,   KC_T,   XXX,
+        KC_TAB,         KC_Q,         KC_W,   KC_E,   KC_R,   KC_T,   KC_LBRC,
         CTL_T(KC_ESC),  KC_A,         KC_S,   KC_D,   KC_F,   KC_G,
-        TD(TD_SFT_CAPS),KC_Z,         KC_X,   KC_C,   KC_V,   KC_B,   MO(MDIA),
-        KC_GRV,         MO(MDIA),     KC_LGUI,XXX,    KC_SLSH,
+        TD(TD_SFT_CAPS),KC_Z,         KC_X,   KC_C,   KC_V,   KC_B,   KC_LCTL,
+        KC_GRV,         MO(MDIA),     KC_LGUI,XXX,    LSFT(LGUI(KC_NO)),
                                                       KC_LALT,KC_LGUI,
                                                               KC_HOME,
                                                KC_BSPC,KC_DEL,KC_END,
         // right hand
              M(MPASTE),   KC_6,   KC_7,   KC_8,   KC_9,   KC_0,             KC_MINS,
-             XXX,         KC_Y,   KC_U,   KC_I,   KC_O,   KC_P,             KC_BSLS,
+             KC_RBRC,     KC_Y,   KC_U,   KC_I,   KC_O,   KC_P,             KC_BSLS,
                           KC_H,   KC_J,   KC_K,   KC_L,   LT(MDIA, KC_SCLN),KC_QUOT,
-             KC_RCTL,     KC_N,   KC_M,   KC_COMM,KC_DOT, KC_UP,            KC_RSFT,
-                                  KC_LBRC,KC_RBRC,KC_LEFT,KC_DOWN,          KC_RIGHT,
+             KC_RCTL,     KC_N,   KC_M,   KC_COMM,KC_DOT, KC_SLSH,          KC_RSFT,
+                                  KC_LEFT,KC_DOWN,KC_UP,  KC_RIGHT,         XXX,
              KC_LGUI, KC_RALT,
              KC_PGUP,
              KC_PGDN, KC_ENT, KC_SPC
@@ -78,13 +80,13 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  * ,--------------------------------------------------.           ,--------------------------------------------------.
  * |        |  F1  |  F2  |  F3  |  F4  |  F5  |      |           |      |  F6  |  F7  |  F8  |  F9  |  F10 | Bright+|
  * |--------+------+------+------+------+-------------|           |------+------+------+------+------+------+--------|
- * |        |      |      | MsUp |      |ScrlDn|      |           |      |      |      | Acc0 | Acc1 | Acc2 | Bright-|
+ * |        |      |      |      |      |      |      |           |      |      |      |      |      |      | Bright-|
  * |--------+------+------+------+------+------|      |           |      |------+------+------+------+------+--------|
- * |        |      |MsLeft|MsDown|MsRght|ScrlUp|------|           |------|      |      | Lclk | Rclk |      |  Play  |
+ * |        |      |      |      |      |      |------|           |------|      |      |      |      |      |  Play  |
  * |--------+------+------+------+------+------|      |           |      |------+------+------+------+------+--------|
- * |        |      |      |      |      |      |      |           |      |      |      | Prev | Next | VolUp|        |
+ * |        |      |      |      |      |      |      |           |      |      |      | Prev | Next |      |        |
  * `--------+------+------+------+------+-------------'           `-------------+------+------+------+------+--------'
- *   |OSTOGL|      |      |      |      |                                       |      |      | Mute | VolDn|      |
+ *   |OSTOGL|      |      |      |      |                                       |      | VolDn| VolUp|      |      |
  *   `----------------------------------'                                       `----------------------------------'
  *                                        ,-------------.       ,-------------.
  *                                        |      |      |       |      |      |
@@ -97,20 +99,20 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 // MEDIA AND MOUSE
 [MDIA] = KEYMAP(
        // left hand
-       _______,      KC_F1,   KC_F2,   KC_F3,   KC_F4,   KC_F5,         _______,
-       _______,      _______, _______, KC_MS_U, _______, KC_MS_WH_DOWN, _______,
-       _______,      _______, KC_MS_L, KC_MS_D, KC_MS_R, KC_MS_WH_UP,
+       _______,      KC_F1,   KC_F2,   KC_F3,   KC_F4,   KC_F5,   _______,
+       _______,      _______, _______, _______, _______, _______, _______,
+       _______,      _______, _______, _______, _______, _______,
        _______,      _______, _______, _______, _______, _______,       _______,
        F(FNOSTOGGLE),_______, _______, _______, _______,
                                            _______, _______,
                                                     _______,
                                   _______, _______, _______,
-    // right hand
+       // right hand
        _______, KC_F6,    KC_F7,   KC_F8,        KC_F9,        KC_F10,       KC_F15,
-       _______,  _______, _______, KC_MS_ACCEL0, KC_MS_ACCEL1, KC_MS_ACCEL2, KC_F14,
-                 _______, _______, KC_BTN1,      KC_BTN2,      _______,      KC_MPLY,
-       _______,  _______, _______, KC_MPRV,      KC_MNXT,      KC_VOLU,      _______,
-                          _______, _______,      KC_MUTE,      KC_VOLD,      _______,
+       _______,  _______, _______, _______,      _______,      _______,      KC_F14,
+                 _______, _______, _______,      _______,      _______,      KC_MPLY,
+       _______,  _______, _______, KC_MPRV,      KC_MNXT,      _______,      _______,
+                          _______, KC_VOLD,      KC_VOLU,      _______,      _______,
        _______, _______,
        _______,
        _______, _______, _______
@@ -215,10 +217,12 @@ qk_tap_dance_action_t tap_dance_actions[] = {
 void matrix_init_user(void) {
   // AFAICT, we don't have one of these
   ergodox_board_led_off();
+#ifdef MOUSEKEY_ENABLE
   // mousekey: A bit faster by default, use accel keys for fine control
   mk_max_speed = 6;
   // Slightly slower mouse wheel speed than the default
   mk_wheel_max_speed = 4;
+#endif
 }
 
 // Runs constantly in the background, in a loop.

@@ -1,6 +1,8 @@
 #include "atomic.h"
 #include "action_layer.h"
+#ifdef MOUSEKEY_ENABLE
 #include "mousekey.h"
+#endif
 
 // Each layer gets a name for readability, which is then used in the keymap matrix below.
 enum layer_id {
@@ -45,9 +47,9 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  * .---------------------------------------------------------------------------------------------------------------------- 2u ------------.
  * |        | F1     | F2     | F3     | F4     | F5     | F6     | F7     | F8     | F9     | F10    | VolDwn | VolUp  |                 |
  * |--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+-----------------|
- * |        |        | MouseUp|        | ScrlDn |        |        |        |        |        |        |        |        |        | BrgtUp |
+ * |        |        |        |        |        |        |        |        |        |        |        |        |        |        | BrgtUp |
  * |--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+- 2u ------------+--------|
- * |        | MouseL | MouseDn| MouseR | ScrlUp |        |        |        | Lclk   | Rclk   |        | Play   |                 | BrgtDn |
+ * |        |        |        |        |        |        |        |        |        |        |        | Play   |                 | BrgtDn |
  * |--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+- 2u ---------------------+--------|
  * |        | Reset  |        |        |        |        |        |        | Prev   | Next   |        |                 | PgUP   |        |
  * |--------+--------+--------+--------+--------+- 2u ------------+--------+--------+--------+--------+-----------------+--------+--------|
@@ -55,11 +57,11 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  * '--------------------------------------------------------------------------------------------------------------------------------------'
  */
 [MDIA] = {
-  {____, KC_F1,  KC_F2,   KC_F3,   KC_F4,         KC_F5, KC_F6, KC_F7, KC_F8,   KC_F9,   KC_F10,  KC_VOLD, KC_VOLU, ____, ____},
-  {____, ____,   KC_MS_U, ____,    KC_MS_WH_DOWN, ____,  ____,  ____,  ____,    ____,    ____,    ____,    ____,    ____, KC_F15},
-  {____, KC_MS_L,KC_MS_D, KC_MS_R, KC_MS_WH_UP,   ____,  ____,  ____,  KC_BTN1, KC_BTN2, ____,    KC_MPLY, ____,    ____, KC_F14},
-  {____, RESET,  ____,    ____,    ____,          ____,  ____,  ____,  ____,    KC_MPRV, KC_MNXT, ____,    ____,    KC_PGUP, ____},
-  {____, ____,   ____,    ____,    ____,          ____,  ____,  ____,  ____,    ____,    ____,    ____,    KC_HOME, KC_PGDN, KC_END},
+  {____, KC_F1,  KC_F2,   KC_F3,   KC_F4, KC_F5, KC_F6, KC_F7, KC_F8,   KC_F9,   KC_F10,  KC_VOLD, KC_VOLU, ____, ____},
+  {____, ____,   ____,    ____,    ____,  ____,  ____,  ____,  ____,    ____,    ____,    ____,    ____,    ____, KC_F15},
+  {____, ____,   ____,    ____,    ____,  ____,  ____,  ____,  ____,    ____,    ____,    KC_MPLY, ____,    ____, KC_F14},
+  {____, RESET,  ____,    ____,    ____,  ____,  ____,  ____,  ____,    KC_MPRV, KC_MNXT, ____,    ____,    KC_PGUP, ____},
+  {____, ____,   ____,    ____,    ____,  ____,  ____,  ____,  ____,    ____,    ____,    ____,    KC_HOME, KC_PGDN, KC_END},
 },
 };
 
@@ -71,12 +73,14 @@ qk_tap_dance_action_t tap_dance_actions[] = {
 
 // Runs just one time when the keyboard initializes.
 void matrix_init_user(void) {
+#ifdef MOUSEKEY_ENABLE
   // mousekey: A bit faster by default, use accel keys for fine control
   mk_max_speed = 10;
   // accelerate a bit faster than usual
   mk_time_to_max = 15;
   // Slightly slower mouse wheel speed than the default
   mk_wheel_max_speed = 4;
+#endif
 }
 
 // Runs constantly in the background, in a loop.

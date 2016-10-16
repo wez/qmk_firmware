@@ -41,11 +41,11 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  * |--------+------+------+------+------+-------------|           |------+------+------+------+------+------+--------|
  * | Tab    |   Q  |   W  |   E  |   R  |   T  |  [   |           |   ]  |   Y  |   U  |   I  |   O  |   P  |   \    |
  * |--------+------+------+------+------+------|      |           |      |------+------+------+------+------+--------|
- * |Esc/Ctrl|   A  |   S  |   D  |   F  |   G  |------|           |------|   H  |   J  |   K  |   L  |;/MDIA|  '"    |
+ * |Esc/Ctrl|   A  |   S  |   D  |   F  |   G  |------|           |------|   H  |   J  |   K  |   L  |   ;  |  '"    |
  * |--------+------+------+------+------+------| Ctrl |           | Ctrl |------+------+------+------+------+--------|
  * |Shft/Caps|  Z  |   X  |   C  |   V  |   B  |      |           |      |   N  |   M  |   ,  |   .  |  Up  | RShift |
  * `--------+------+------+------+------+-------------'           `-------------+------+------+------+------+--------'
- *   | Grv  | MDIA | LGui |      | S+Gui|                                       | Left | Down | Up   | Down |      |
+ *   | Grv  | MDIA | LGui |      | S+Gui|                                       | Left | Down | Up   | Down | MDIA |
  *   `----------------------------------'                                       `----------------------------------'
  *                                        ,-------------.       ,-------------.
  *                                        | Alt  | LGui |       | LGui | Alt  |
@@ -68,9 +68,9 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         // right hand
              M(MPASTE),   KC_6,   KC_7,   KC_8,   KC_9,   KC_0,             KC_MINS,
              KC_RBRC,     KC_Y,   KC_U,   KC_I,   KC_O,   KC_P,             KC_BSLS,
-                          KC_H,   KC_J,   KC_K,   KC_L,   LT(MDIA, KC_SCLN),KC_QUOT,
+                          KC_H,   KC_J,   KC_K,   KC_L,   KC_SCLN,          KC_QUOT,
              KC_RCTL,     KC_N,   KC_M,   KC_COMM,KC_DOT, KC_SLSH,          KC_RSFT,
-                                  KC_LEFT,KC_DOWN,KC_UP,  KC_RIGHT,         XXX,
+                                  KC_LEFT,KC_DOWN,KC_UP,  KC_RIGHT,         MO(MDIA),
              KC_LGUI, KC_RALT,
              KC_PGUP,
              KC_PGDN, KC_ENT, KC_SPC

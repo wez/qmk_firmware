@@ -66,6 +66,9 @@
 #ifdef BLUETOOTH_ENABLE
     #include "bluetooth.h"
 #endif
+#ifdef BLE_ENABLE
+    #include "ble.h"
+#endif
 
 #ifdef VIRTSER_ENABLE
     #include "virtser.h"
@@ -504,8 +507,12 @@ static void send_keyboard(report_keyboard_t *report)
 
     uint8_t timeout = 255;
 
-    if (USB_DeviceState != DEVICE_STATE_Configured)
+    if (USB_DeviceState != DEVICE_STATE_Configured) {
+#ifdef BLE_ENABLE
+        ble_send_keys(report->mods, report->keys, sizeof(report->keys));
+#endif
         return;
+    }
 
     /* Select the Keyboard Report Endpoint */
 #ifdef NKRO_ENABLE
@@ -558,8 +565,13 @@ static void send_mouse(report_mouse_t *report)
 
     uint8_t timeout = 255;
 
-    if (USB_DeviceState != DEVICE_STATE_Configured)
+    if (USB_DeviceState != DEVICE_STATE_Configured) {
+#ifdef BLE_ENABLE
+        // FIXME: mouse buttons
+        ble_send_mouse_move(report->x, report->y, report->v, report->h);
+#endif
         return;
+    }
 
     /* Select the Mouse Report Endpoint */
     Endpoint_SelectEndpoint(MOUSE_IN_EPNUM);
@@ -618,8 +630,12 @@ static void send_consumer(uint16_t data)
 
     uint8_t timeout = 255;
 
-    if (USB_DeviceState != DEVICE_STATE_Configured)
+    if (USB_DeviceState != DEVICE_STATE_Configured) {
+#ifdef BLE_ENABLE
+        ble_send_consumer_key(data, 0);
+#endif
         return;
+    }
 
     report_extra_t r = {
         .report_id = REPORT_ID_CONSUMER,
@@ -1001,6 +1017,9 @@ int main(void)
 #ifdef BLUETOOTH_ENABLE
     serial_init();
 #endif
+#ifdef BLE_ENABLE
+    ble_enable_keyboard();
+#endif
 
     /* wait for USB startup & debug output */
 
@@ -1029,7 +1048,7 @@ int main(void)
 
     print("Keyboard start.\n");
     while (1) {
-        #ifndef BLUETOOTH_ENABLE
+        #ifndef defined(BLUETOOTH_ENABLE)
         while (USB_DeviceState == DEVICE_STATE_Suspended) {
             print("[s]");
             suspend_power_down();
@@ -1044,6 +1063,10 @@ int main(void)
         // MIDI_Task();
 #endif
         keyboard_task();
+
+#ifdef BLE_ENABLE
+        ble_task();
+#endif
 
 #ifdef VIRTSER_ENABLE
         virtser_task();

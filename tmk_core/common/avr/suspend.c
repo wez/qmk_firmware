@@ -85,6 +85,8 @@ static void power_down(uint8_t wdto)
 		// stop_all_notes();
 	#endif /* AUDIO_ENABLE */
 
+    matrix_power_down();
+
     // TODO: more power saving
     // See PicoPower application note
     // - I/O port input with pullup

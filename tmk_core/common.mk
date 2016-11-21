@@ -81,6 +81,10 @@ ifeq ($(strip $(BACKLIGHT_ENABLE)), yes)
     TMK_COMMON_DEFS += -DBACKLIGHT_ENABLE
 endif
 
+ifeq ($(strip $(BLE_ENABLE)), yes)
+    TMK_COMMON_DEFS += -DBLE_ENABLE
+endif
+
 ifeq ($(strip $(BLUETOOTH_ENABLE)), yes)
     TMK_COMMON_DEFS += -DBLUETOOTH_ENABLE
 endif

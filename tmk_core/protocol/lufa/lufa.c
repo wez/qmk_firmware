@@ -51,6 +51,7 @@
 
 #include "descriptor.h"
 #include "lufa.h"
+#include <util/atomic.h>
 
 #ifdef NKRO_ENABLE
   #include "keycode_config.h"
@@ -291,7 +292,9 @@ void EVENT_USB_Device_WakeUp()
 #ifdef CONSOLE_ENABLE
 static bool console_flush = false;
 #define CONSOLE_FLUSH_SET(b)   do { \
-    uint8_t sreg = SREG; cli(); console_flush = b; SREG = sreg; \
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {\
+    console_flush = b; \
+  } \
 } while (0)
 
 // called every 1ms
@@ -495,9 +498,36 @@ static uint8_t keyboard_leds(void)
     return keyboard_led_stats;
 }
 
+#define SendToUSB 1
+#define SendToBT  2
+#define SendToBLE 4
+
+static inline uint8_t where_to_send(void) {
+#ifdef BLE_ENABLE
+#if 0
+  if (ble_is_connected()) {
+    // For testing, send to BLE as a priority
+    return SendToBLE;
+  }
+#endif
+
+  // This is the real policy
+  if (USB_DeviceState != DEVICE_STATE_Configured &&
+      USB_DeviceState != DEVICE_STATE_Suspended) {
+    if (ble_is_connected()) {
+      return SendToBLE;
+    }
+  }
+#endif
+  return ((USB_DeviceState == DEVICE_STATE_Configured) ? SendToUSB : 0)
+#ifdef BLUETOOTH_ENABLE
+    || SendToBT
+#endif
+    ;
+}
+
 static void send_keyboard(report_keyboard_t *report)
 {
-
 #ifdef BLUETOOTH_ENABLE
     bluefruit_serial_send(0xFD);
     for (uint8_t i = 0; i < KEYBOARD_EPSIZE; i++) {
@@ -506,12 +536,16 @@ static void send_keyboard(report_keyboard_t *report)
 #endif
 
     uint8_t timeout = 255;
+    uint8_t where = where_to_send();
 
-    if (USB_DeviceState != DEVICE_STATE_Configured) {
 #ifdef BLE_ENABLE
-        ble_send_keys(report->mods, report->keys, sizeof(report->keys));
+    if (where & SendToBLE) {
+      ble_send_keys(report->mods, report->keys, sizeof(report->keys));
+    }
 #endif
-        return;
+
+    if (!(where & SendToUSB)) {
+      return;
     }
 
     /* Select the Keyboard Report Endpoint */
@@ -565,12 +599,16 @@ static void send_mouse(report_mouse_t *report)
 
     uint8_t timeout = 255;
 
-    if (USB_DeviceState != DEVICE_STATE_Configured) {
+    uint8_t where = where_to_send();
+
 #ifdef BLE_ENABLE
-        // FIXME: mouse buttons
-        ble_send_mouse_move(report->x, report->y, report->v, report->h);
+    if (where & SendToBLE) {
+      // FIXME: mouse buttons
+      ble_send_mouse_move(report->x, report->y, report->v, report->h);
+    }
 #endif
-        return;
+    if (!(where & SendToUSB)) {
+      return;
     }
 
     /* Select the Mouse Report Endpoint */
@@ -629,12 +667,15 @@ static void send_consumer(uint16_t data)
 #endif
 
     uint8_t timeout = 255;
+    uint8_t where = where_to_send();
 
-    if (USB_DeviceState != DEVICE_STATE_Configured) {
 #ifdef BLE_ENABLE
-        ble_send_consumer_key(data, 0);
+    if (where & SendToBLE) {
+      ble_send_consumer_key(data, 0);
+    }
 #endif
-        return;
+    if (!(where & SendToUSB)) {
+      return;
     }
 
     report_extra_t r = {
@@ -1018,7 +1059,7 @@ int main(void)
     serial_init();
 #endif
 #ifdef BLE_ENABLE
-    ble_enable_keyboard();
+    //ble_enable_keyboard();
 #endif
 
     /* wait for USB startup & debug output */
@@ -1048,7 +1089,7 @@ int main(void)
 
     print("Keyboard start.\n");
     while (1) {
-        #ifndef defined(BLUETOOTH_ENABLE)
+        #ifndef BLUETOOTH_ENABLE
         while (USB_DeviceState == DEVICE_STATE_Suspended) {
             print("[s]");
             suspend_power_down();

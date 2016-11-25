@@ -15,6 +15,7 @@ static inline void pinMode(uint8_t pin, int mode) {
     _SFR_IO8((pin >> 4) + 1) |= bv;
   } else {
     _SFR_IO8((pin >> 4) + 1) &= ~bv;
+    _SFR_IO8((pin >> 4) + 2) &= ~bv;
   }
 }
 
@@ -27,6 +28,7 @@ static inline void digitalWrite(uint8_t pin, int mode) {
   }
 }
 
+// Return true if the pin is HIGH
 static inline bool digitalRead(uint8_t pin) {
   return _SFR_IO8(pin >> 4) & _BV(pin & 0xf);
 }

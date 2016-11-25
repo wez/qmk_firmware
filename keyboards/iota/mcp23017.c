@@ -4,8 +4,9 @@
 #include "pincontrol.h"
 
 // Controls the MCP23017 16 pin I/O expander
+static bool initialized;
 
-#define i2cAddress 0x20 // Configurable with jumpers
+#define i2cAddress 0x27 // Configurable with jumpers
 enum mcp23017_registers {
 	IODirectionA = 0x00,
   IODirectionB = 0x01,
@@ -58,12 +59,12 @@ bool iota_mcp23017_enable_interrupts(void) {
   set_reg(IOConfigurationB, 0b01000000);
 
   // We want interrupts to fire when the buttons toggle
-  set_reg(InterruptControlA, 0x00);
-  set_reg(InterruptControlB, 0x00);
+  set_reg(InterruptControlA, 0xff);
+  set_reg(InterruptControlB, 0xff);
 
   // And enable interrupts
   set_reg(InterruptOnChangeA, 0xff);
-  set_reg(InterruptOnChangeB, 0xff);
+  set_reg(InterruptOnChangeB, 0xfe); // Note: B0 is floating
 
   success = true;
 done:
@@ -71,13 +72,17 @@ done:
 }
 
 bool iota_mcp23017_init(void) {
-  bool success = false;
+  initialized = false;
 
   // Set all the pins as inputs
   set_reg(IODirectionA, 0xff);
   set_reg(IODirectionB, 0xff);
 
-  // We're including pull-up resistors on each input
+  // Read key presses (logic low) as 1s
+  set_reg(InputPolarityB, 0xff);
+  set_reg(InputPolarityA, 0xff);
+
+  // Turn off internal pull-ups; we're adding our own
   set_reg(PullUpA, 0xff);
   set_reg(PullUpB, 0xff);
 
@@ -85,14 +90,25 @@ bool iota_mcp23017_init(void) {
   set_reg(InterruptOnChangeA, 0x0);
   set_reg(InterruptOnChangeB, 0x0);
 
-  success = true;
+  initialized = true;
 done:
-  return success;
+  return initialized;
+}
+
+bool iota_mcp23017_make_ready(void) {
+  if (initialized) {
+    return true;
+  }
+  return iota_mcp23017_init();
 }
 
 // Read all 16 inputs and return them
 uint16_t iota_mcp23017_read(void) {
   uint16_t pins = 0;
+
+  if (!initialized) {
+    return false;
+  }
 
   if (i2c_start_write(i2cAddress)) {
     goto done;

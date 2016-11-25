@@ -12,7 +12,7 @@
  * in the string you send in.
  * The response from the command will be stored into the resp buffer.
  * Returns true for an OK response, false for an ERROR response. */
-extern bool ble_at_command(const char *cmd, char *resp, uint16_t resplen);
+extern bool ble_at_command(const char *cmd, char *resp, uint16_t resplen, bool verbose);
 extern bool ble_at_command_P(const char *cmd, char *resp, uint16_t resplen);
 
 /* Instruct the module to enable HID keyboard support and reset */
@@ -52,9 +52,7 @@ extern bool ble_send_consumer_key(uint16_t keycode, int hold_duration);
 extern bool ble_send_mouse_move(int8_t x, int8_t y, int8_t scroll, int8_t pan);
 #endif
 
-/* Inform the peer that the battery level is the specified value */
-extern bool ble_send_battery_percentage(uint8_t percent);
-
-/* Compute battery volatage by reading an analog pin */
-extern float ble_read_battery_voltage(void);
+/* Compute battery voltage by reading an analog pin.
+ * Returns the integer number of millivolts */
+extern uint16_t ble_read_battery_voltage(void);
 #endif

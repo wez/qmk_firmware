@@ -31,18 +31,20 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "pincontrol.h"
 #include "lufa.h"
 #include "suspend.h"
+#include "ble.h"
+#include <util/atomic.h>
 
 // The keyboard matrix is attached to the following pins:
 // row0: A0 - PF7
 // row1: A1 - PF6
 // row2: A2 - PF5
 // row3: A3 - PF4
-// row4: A4 - PF3
+// row4: A4 - PF1
 // col0-7: mcp23107 GPIOA0-7
-// col8-14: mcp23107 GPIOB0-6 (note that B7 is unused)
+// col8-14: mcp23107 GPIOB1-7 (note that B0 is unused)
 // PD3 (INT3) connect to interrupt pins on mcp23107
-static const uint8_t row_pins[MATRIX_ROWS] = {F7, F6, F5, F4, F3};
-#if (DEBOUNCING_DELAY > 0)
+static const uint8_t row_pins[MATRIX_ROWS] = {F7, F6, F5, F4, F1};
+#if DEBOUNCING_DELAY > 0
 static bool debouncing;
 static matrix_row_t matrix_debouncing[MATRIX_ROWS];
 #endif
@@ -54,6 +56,11 @@ static matrix_row_t matrix[MATRIX_ROWS];
 static uint32_t matrix_last_modified;
 static bool matrix_powered_on;
 
+#ifdef DEBUG_MATRIX_SCAN_RATE
+static uint32_t scan_timer;
+static uint32_t scan_count;
+#endif
+
 static inline void select_row(uint8_t row) {
   uint8_t pin = row_pins[row];
 
@@ -64,8 +71,8 @@ static inline void select_row(uint8_t row) {
 static inline void unselect_row(uint8_t row) {
   uint8_t pin = row_pins[row];
 
-  pinMode(pin, PinDirectionInput);
   digitalWrite(pin, PinLevelHigh);
+  pinMode(pin, PinDirectionInput);
 }
 
 static void unselect_rows(void) {
@@ -74,6 +81,7 @@ static void unselect_rows(void) {
   }
 }
 
+#if FANCY_POWER_MGR
 static void select_rows(void) {
   for (uint8_t x = 0; x < MATRIX_ROWS; x++) {
     select_row(x);
@@ -83,19 +91,25 @@ static void select_rows(void) {
 // This is just a placeholder so that we can participate in power
 // management without faulting the MCU
 EMPTY_INTERRUPT(INT3_vect);
+#endif
 
 void matrix_power_down(void) {
   matrix_powered_on = false;
 
-  iota_gfx_off();
+#if FANCY_POWER_MGR
+//  iota_gfx_off();
 
   // if any buttons are pressed, we want to wake up.
   // Set the matrix up for that.
   select_rows();
-  if (iota_mcp23017_enable_interrupts()) {
-    pinMode(PD3, PinDirectionInput);
-    EIMSK |= _BV(INT3);
+
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+    if (iota_mcp23017_enable_interrupts()) {
+      pinMode(PD3, PinDirectionInput);
+      EIMSK |= _BV(INT3);
+    }
   }
+#endif
 }
 
 void matrix_power_up(void) {
@@ -103,17 +117,30 @@ void matrix_power_up(void) {
 }
 
 void matrix_init(void) {
+#if FANCY_POWER_MGR
   // Disable matrix interrupts
-  EIMSK &= ~_BV(PCINT6);
-  pinMode(PD3, PinDirectionInput);
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+    EIMSK &= ~_BV(PCINT6); // this seems to break timers FIXME!
+    pinMode(PD3, PinDirectionInput);
+  }
+#endif
+
+  memset(matrix, 0, sizeof(matrix));
+#if DEBOUNCING_DELAY > 0
+  memset(matrix_debouncing, 0, sizeof(matrix_debouncing));
+#endif
 
   i2c_init();
-  iota_gfx_init();
+  //  iota_gfx_init();
   iota_mcp23017_init();
   unselect_rows();
 
   matrix_powered_on = true;
   matrix_last_modified = timer_read32();
+#ifdef DEBUG_MATRIX_SCAN_RATE
+  scan_timer = timer_read32();
+  scan_count = 0;
+#endif
 }
 
 bool matrix_is_on(uint8_t row, uint8_t col) {
@@ -121,8 +148,6 @@ bool matrix_is_on(uint8_t row, uint8_t col) {
 }
 
 matrix_row_t matrix_get_row(uint8_t row) { return matrix[row]; }
-
-extern uint16_t iota_mcp23017_read(void);
 
 static bool read_cols_on_row(matrix_row_t current_matrix[],
                              uint8_t current_row) {
@@ -134,46 +159,75 @@ static bool read_cols_on_row(matrix_row_t current_matrix[],
 
   // Select row and wait for row selection to stabilize
   select_row(current_row);
-  wait_us(30);
+  _delay_us(30);
 
   current_matrix[current_row] = iota_mcp23017_read();
 
-  // Unselect row
   unselect_row(current_row);
 
-  return (last_row_value != current_matrix[current_row]);
+  return last_row_value != current_matrix[current_row];
 }
 
 uint8_t matrix_scan(void) {
+  if (!iota_mcp23017_make_ready()) {
+    return 0;
+  }
+
   for (uint8_t current_row = 0; current_row < MATRIX_ROWS; current_row++) {
-#if (DEBOUNCING_DELAY > 0)
-    bool matrix_changed = read_cols_on_row(matrix_debouncing, current_row);
+    bool matrix_changed = read_cols_on_row(
+#if DEBOUNCING_DELAY > 0
+        matrix_debouncing,
+#else
+        matrix,
+#endif
+        current_row);
 
     if (matrix_changed) {
+#if DEBOUNCING_DELAY > 0
       debouncing = true;
-      matrix_last_modified = timer_read32();
-    }
-#else
-    if (read_cols_on_row(matrix, current_row)) {
-      matrix_last_modified = timer_read32();
-    }
 #endif
-  }
-#if (DEBOUNCING_DELAY > 0)
-  if (debouncing && (timer_elapsed32(matrix_last_modified) > DEBOUNCING_DELAY)) {
-    for (uint8_t i = 0; i < MATRIX_ROWS; i++) {
-      matrix[i] = matrix_debouncing[i];
+      matrix_last_modified = timer_read32();
     }
+  }
+
+#ifdef DEBUG_MATRIX_SCAN_RATE
+  scan_count++;
+
+  uint32_t timer_now = timer_read32();
+  if (TIMER_DIFF_32(timer_now, scan_timer)>1000) {
+    print("matrix scan frequency: ");
+    pdec(scan_count);
+    print("\n");
+
+    scan_timer = timer_now;
+    scan_count = 0;
+  }
+#endif
+
+#if DEBOUNCING_DELAY > 0
+  if (debouncing &&
+      (timer_elapsed32(matrix_last_modified) > DEBOUNCING_DELAY)) {
+    memcpy(matrix, matrix_debouncing, sizeof(matrix));
     debouncing = false;
   }
 #endif
 
+#if FANCY_POWER_MGR
   // power management
   if (matrix_powered_on && (USB_DeviceState == DEVICE_STATE_Suspended ||
-                            USB_DeviceState == DEVICE_STATE_Unattached) &&
+        USB_DeviceState == DEVICE_STATE_Unattached) &&
+#if BLE_ENABLE
+      !ble_is_connected() &&
+#endif
       timer_elapsed32(matrix_last_modified) > MATRIX_POWER_SAVE) {
     suspend_power_down();
   }
+#endif
+
+#if 0
+  debug_enable = true;
+  debug_keyboard = true;
+#endif
 
   matrix_scan_quantum();
   return 1;

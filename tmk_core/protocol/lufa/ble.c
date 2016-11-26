@@ -6,8 +6,6 @@
 #include <util/atomic.h>
 #include "debug.h"
 #include "pincontrol.h"
-#include "analog.h"
-#include "analog.c" // oof, but quantum/analog.c isn't in any makefile
 #include "timer.h"
 #include "action_util.h"
 
@@ -749,18 +747,25 @@ bool ble_send_mouse_move(int8_t x, int8_t y, int8_t scroll, int8_t pan) {
 }
 #endif
 
-#ifdef SAMPLE_BATTERY
 // Lipoly batteries are 'maxed out' at 4.2V and stick around 3.7V for much of
 // the battery life, then slowly sink down to 3.2V or so before the protection
 // circuitry cuts it off. By measuring the voltage you can quickly tell when
 // you're heading below 3.7V
-uint16_t ble_read_battery_voltage(void) {
-  float vbat = analogRead(9);
+float ble_read_battery_voltage(void) {
+  int low, high;
+
+#define BatteryChannel 12 // Pin A9
+  ADCSRB = (ADCSRB & ~(1 << MUX5)) | (((BatteryChannel >> 3) & 0x01) << MUX5);
+  ADMUX = (1 << 6) | (BatteryChannel & 0x07);
+  ADCSRA |= 1<<ADSC;
+	while (ADCSRA & (1<<ADSC)) ;			// wait for result
+  low = ADCL;
+  high = ADCH;
+  float vbat = (high << 8) | low;
+
   // The level of A9 is divided by 2 by a resistor attached to this pin,
   // so we need to double it here.
   vbat *= 2 /* resistor */ * 3.3 /* reference voltage */;
-  vbat *= 10000.0 / 1024.0; /* from scaled digital value to millivolts */
-  xprintf("VBat: %d mV\n", (int)(vbat));
-  return (uint16_t)vbat;
+  vbat *= 1024.0; /* from scaled digital value */
+  return vbat;
 }
-#endif

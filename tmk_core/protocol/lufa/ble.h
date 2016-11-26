@@ -54,5 +54,5 @@ extern bool ble_send_mouse_move(int8_t x, int8_t y, int8_t scroll, int8_t pan);
 
 /* Compute battery voltage by reading an analog pin.
  * Returns the integer number of millivolts */
-extern uint16_t ble_read_battery_voltage(void);
+extern float ble_read_battery_voltage(void);
 #endif

@@ -97,7 +97,7 @@ void matrix_power_down(void) {
   matrix_powered_on = false;
 
 #if FANCY_POWER_MGR
-//  iota_gfx_off();
+  iota_gfx_off();
 
   // if any buttons are pressed, we want to wake up.
   // Set the matrix up for that.
@@ -113,7 +113,19 @@ void matrix_power_down(void) {
 }
 
 void matrix_power_up(void) {
-  matrix_init();
+  unselect_rows();
+
+  memset(matrix, 0, sizeof(matrix));
+#if DEBOUNCING_DELAY > 0
+  memset(matrix_debouncing, 0, sizeof(matrix_debouncing));
+#endif
+
+  matrix_powered_on = true;
+  matrix_last_modified = timer_read32();
+#ifdef DEBUG_MATRIX_SCAN_RATE
+  scan_timer = timer_read32();
+  scan_count = 0;
+#endif
 }
 
 void matrix_init(void) {
@@ -125,22 +137,11 @@ void matrix_init(void) {
   }
 #endif
 
-  memset(matrix, 0, sizeof(matrix));
-#if DEBOUNCING_DELAY > 0
-  memset(matrix_debouncing, 0, sizeof(matrix_debouncing));
-#endif
-
   i2c_init();
-  //  iota_gfx_init();
   iota_mcp23017_init();
-  unselect_rows();
+  iota_gfx_init();
 
-  matrix_powered_on = true;
-  matrix_last_modified = timer_read32();
-#ifdef DEBUG_MATRIX_SCAN_RATE
-  scan_timer = timer_read32();
-  scan_count = 0;
-#endif
+  matrix_power_up();
 }
 
 bool matrix_is_on(uint8_t row, uint8_t col) {
@@ -169,6 +170,8 @@ static bool read_cols_on_row(matrix_row_t current_matrix[],
 }
 
 uint8_t matrix_scan(void) {
+  iota_gfx_task();
+
   if (!iota_mcp23017_make_ready()) {
     return 0;
   }

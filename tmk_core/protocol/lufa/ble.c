@@ -12,13 +12,18 @@
 static volatile bool is_connected;
 static bool initialized;
 static bool configured;
+#define SAMPLE_BATTERY
 #ifdef SAMPLE_BATTERY
 static uint32_t last_battery_update;
+static uint32_t vbat;
 #endif
 #define ConnectionUpdateMinInterval 1000 /* milliseconds */
 #define ConnectionUpdateMaxInterval 10000 /* milliseconds */
 static uint32_t last_connection_update;
 static uint16_t connection_interval = ConnectionUpdateMinInterval;
+static uint8_t event_flags;
+#define ProbedEvents 1
+#define UsingEvents 2
 
 // Commands are encoded using SDEP and sent via SPI
 // https://github.com/adafruit/Adafruit_BluefruitLE_nRF51/blob/master/SDEP.md
@@ -439,6 +444,7 @@ bool ble_at_command(const char *cmd, char *resp, uint16_t resplen, bool verbose)
     // for all pending I/O to finish before we start this one, so
     // that we don't confuse the results
     send_buf_wait(cmd);
+    *resp = 0;
   }
 
   // Fragment the command into a series of SDEP packets
@@ -495,6 +501,7 @@ bool ble_enable_keyboard(void) {
 //  static const char kBleBatEn[] PROGMEM = "AT+BLEBATTEN";
   // Reset the device so that it picks up the above changes
   static const char kATZ[] PROGMEM = "ATZ";
+
   // Turn down the power level a bit
 //  static const char kPower[] PROGMEM = "AT+BLEPOWERLEVEL=-12";
   static const PGM_P const configure_commands[] PROGMEM = {
@@ -513,11 +520,17 @@ bool ble_enable_keyboard(void) {
     memcpy_P(&cmd, configure_commands + i, sizeof(cmd));
 
     if (!ble_at_command_P(cmd, resbuf, sizeof(resbuf))) {
+      xprintf("failed BLE command: %S: %s\n", cmd, resbuf);
       goto fail;
     }
   }
 
   configured = true;
+
+  // Check connection status in a little while; allow the ATZ time
+  // to kick in.
+  last_connection_update = timer_read32();
+  connection_interval = ConnectionUpdateMinInterval;
 fail:
   return configured;
 }
@@ -541,9 +554,32 @@ void ble_task(void) {
     // Arrange to re-check connection after keys have settled
     connection_interval = ConnectionUpdateMinInterval;
     last_connection_update = timer_read32();
+  } else if (!send_buf.waiting_for_result && (event_flags & UsingEvents) &&
+             digitalRead(BleIRQPin)) {
+    // Must be an event update
+    if (ble_at_command_P(PSTR("AT+EVENTSTATUS"), resbuf, sizeof(resbuf))) {
+      uint32_t mask = strtoul(resbuf, NULL, 16);
+
+      if (mask & BleSystemConnected) {
+        is_connected = true;
+        print("****** Event: BLE CONNECT!!!!\n");
+      } else if (mask & BleSystemDisconnected) {
+        is_connected = false;
+        print("****** Event: BLE DISCONNECT!!!!\n");
+      }
+    }
   }
 
   if (timer_elapsed32(last_connection_update) > connection_interval) {
+    if (!(event_flags & ProbedEvents)) {
+      // Request notifications about connection status changes
+      if (ble_at_command_P(PSTR("AT+EVENTENABLE=0x1"), resbuf, sizeof(resbuf))) {
+        ble_at_command_P(PSTR("AT+EVENTENABLE=0x2"), resbuf, sizeof(resbuf));
+        event_flags |= UsingEvents;
+      }
+      event_flags |= ProbedEvents;
+    }
+
     static const char kGetConn[] PROGMEM = "AT+GAPGETCONN";
     last_connection_update = timer_read32();
 
@@ -573,14 +609,9 @@ void ble_task(void) {
   if (timer_elapsed32(last_battery_update) > BatteryUpdateInterval) {
     last_battery_update = timer_read32();
 
-    uint16_t vbat = ble_read_battery_voltage();
-    // It's impossible to really tell the battery percentage just
-    // from the voltage, but we can give a rough estimate.
-    // The battery shuts itself off at 3v so we treat that as 0%.
-#define kVmax 4200
-#define kVmin 3000
-    int pct = ((vbat - kVmin) * 100.0) / (kVmax - kVmin);
-    xprintf("vbat %d mV -> %d pct\n", vbat, pct);
+    if (ble_at_command_P(PSTR("AT+HWVBAT"), resbuf, sizeof(resbuf))) {
+      vbat = atoi(resbuf);
+    }
   }
 #endif
 }
@@ -751,21 +782,6 @@ bool ble_send_mouse_move(int8_t x, int8_t y, int8_t scroll, int8_t pan) {
 // the battery life, then slowly sink down to 3.2V or so before the protection
 // circuitry cuts it off. By measuring the voltage you can quickly tell when
 // you're heading below 3.7V
-float ble_read_battery_voltage(void) {
-  int low, high;
-
-#define BatteryChannel 12 // Pin A9
-  ADCSRB = (ADCSRB & ~(1 << MUX5)) | (((BatteryChannel >> 3) & 0x01) << MUX5);
-  ADMUX = (1 << 6) | (BatteryChannel & 0x07);
-  ADCSRA |= 1<<ADSC;
-	while (ADCSRA & (1<<ADSC)) ;			// wait for result
-  low = ADCL;
-  high = ADCH;
-  float vbat = (high << 8) | low;
-
-  // The level of A9 is divided by 2 by a resistor attached to this pin,
-  // so we need to double it here.
-  vbat *= 2 /* resistor */ * 3.3 /* reference voltage */;
-  vbat *= 1024.0; /* from scaled digital value */
+uint32_t ble_read_battery_voltage(void) {
   return vbat;
 }

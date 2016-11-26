@@ -87,7 +87,6 @@ static inline bool _send_cmd1(uint8_t cmd) {
     goto done;
   }
   res = true;
-  xprintf("successfully wrote cmd %d\n", cmd);
 done:
   i2c_stop();
   return res;
@@ -321,8 +320,8 @@ void iota_gfx_task(void) {
   iota_gfx_write_P(PSTR("\n"));
 
   char buf[40];
-  snprintf(buf, sizeof(buf), "Mod 0x%02x\nLayer: 0x%04lx", get_mods(),
-           layer_state);
+  snprintf(buf, sizeof(buf), "Mod 0x%02x VBat: %4lumVLayer: 0x%04lx", get_mods(),
+           ble_read_battery_voltage(), layer_state);
   iota_gfx_write(buf);
 
 

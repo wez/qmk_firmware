@@ -8,18 +8,22 @@
 #include "pincontrol.h"
 #include "timer.h"
 #include "action_util.h"
+#include "RingBuffer.hpp"
+
+#undef CONSOLIDATE_REPORTS // Doesn't work very well
+#define PIPELINE_SENDS 0   // Helps a little, but can crash BLE
 
 static volatile bool is_connected;
 static bool initialized;
 static bool configured;
 #define SAMPLE_BATTERY
 #ifdef SAMPLE_BATTERY
-static uint32_t last_battery_update;
+static uint16_t last_battery_update;
 static uint32_t vbat;
 #endif
 #define ConnectionUpdateMinInterval 1000 /* milliseconds */
-#define ConnectionUpdateMaxInterval 10000 /* milliseconds */
-static uint32_t last_connection_update;
+#define ConnectionUpdateMaxInterval 1000 /* milliseconds */
+static uint16_t last_connection_update;
 static uint16_t connection_interval = ConnectionUpdateMinInterval;
 static uint8_t event_flags;
 #define ProbedEvents 1
@@ -54,13 +58,51 @@ enum queue_type {
 #endif
 };
 
+struct __attribute__((packed)) ble_key_report {
+  uint8_t modifier;
+  uint8_t keys[6];
+
+  void clear() {
+    memset(this, 0, sizeof(*this));
+  }
+
+  bool areAnyKeysDown() const {
+    for (uint8_t i = 0; i < 6; ++i) {
+      if (keys[i]) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  int8_t idxForKey(uint8_t k) {
+    for (uint8_t i = 0; i < 6; ++i) {
+      if (keys[i] == k) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  bool addKey(uint8_t key) {
+    for (uint8_t i = 0; i < 6; ++i) {
+      if (keys[i] == key) {
+        return true;
+      }
+      if (keys[i] == 0) {
+        keys[i] = key;
+        return true;
+      }
+    }
+    return true;
+  }
+};
+
 struct queue_item {
   enum queue_type queue_type;
+  uint16_t added;
   union __attribute__((packed)) {
-    struct __attribute__((packed)) {
-      uint8_t modifier;
-      uint8_t keys[6];
-    } key;
+    ble_key_report key;
     uint16_t consumer;
     struct __attribute__((packed)) {
       uint8_t x, y, scroll, pan;
@@ -68,18 +110,16 @@ struct queue_item {
   };
 };
 
-struct send_queue {
-#define SdepRingBufSize 160
-  uint8_t buf[SdepRingBufSize];
-  uint8_t head, tail;
-  // There's a packet on the wire that we should read back before
-  // we send any others
-  bool waiting_for_result;
-  uint32_t last_send;
-};
-static struct send_queue send_buf;
-static bool send_buf_dequeue(struct queue_item *item);
-static void process_queue_item(struct queue_item *item);
+// Items that we wish to send
+static RingBuffer<queue_item, 40> send_buf;
+
+// Time values at which we sent a packet that expects a response.
+// The hardware seemingly accepts a very small number of outstanding
+// requests, and bumping this up to 5-6 kind of works, but it is
+// possible to type quickly enough to overflow the harware.
+static RingBuffer<uint16_t, 6> resp_buf;
+
+static bool process_queue_item(struct queue_item *item, uint16_t timeout);
 
 enum sdep_type {
   SdepCommand = 0x10,
@@ -109,12 +149,17 @@ enum ble_system_event_bits {
 #define SpiBusSpeed 4000000
 
 #define SdepTimeout 150 /* milliseconds */
+#define SdepShortTimeout 10 /* milliseconds */
 #define SdepBackOff 25 /* microseconds */
 #define BatteryUpdateInterval 10000 /* milliseconds */
 
 #define BleResetPin D4
 #define BleCSPin    B4
 #define BleIRQPin   E6
+
+static bool ble_at_command(const char *cmd, char *resp, uint16_t resplen,
+                           bool verbose, uint16_t timeout = SdepTimeout);
+static bool ble_at_command_P(const char *cmd, char *resp, uint16_t resplen);
 
 struct SPI_Settings {
   uint8_t spcr, spsr;
@@ -126,6 +171,8 @@ static struct SPI_Settings spi;
 void SPI_init(struct SPI_Settings *spi) {
   spi->spcr = _BV(SPE) | _BV(MSTR);
   spi->spsr = _BV(SPI2X);
+
+  static_assert(SpiBusSpeed == F_CPU / 2, "hard coded at 4Mhz");
 
   ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
     // Ensure that SS is OUTPUT High
@@ -165,9 +212,8 @@ static inline void spi_send_bytes(const uint8_t *buf, uint8_t len) {
   }
 }
 
-// Read a byte; we use 0xff as the dummy value to initiate the SPI read.
 static inline uint16_t spi_read_byte(void) {
-  return SPI_TransferByte(0x00);
+  return SPI_TransferByte(0x00 /* dummy */);
 }
 
 static inline void spi_recv_bytes(uint8_t *buf, uint8_t len) {
@@ -183,6 +229,7 @@ static inline void spi_recv_bytes(uint8_t *buf, uint8_t len) {
   }
 }
 
+#if 0
 static void dump_pkt(const struct sdep_msg *msg) {
   print("pkt: type=");
   print_hex8(msg->type);
@@ -195,24 +242,30 @@ static void dump_pkt(const struct sdep_msg *msg) {
   print_hex8(msg->more);
   print("\n");
 }
+#endif
 
 // Send a single SDEP packet
-static bool sdep_send_pkt(const struct sdep_msg *msg) {
+static bool sdep_send_pkt(const struct sdep_msg *msg, uint16_t timeout) {
   SPI_begin(&spi);
 
   digitalWrite(BleCSPin, PinLevelLow);
-  uint32_t timerStart = timer_read32();
+  uint16_t timerStart = timer_read();
   bool success = false;
+  bool ready = false;
 
-  while (SPI_TransferByte(msg->type) == SdepSlaveNotReady &&
-         timer_elapsed32(timerStart) < SdepTimeout) {
+  do {
+    ready = SPI_TransferByte(msg->type) != SdepSlaveNotReady;
+    if (ready) {
+      break;
+    }
+
     // Release it and let it initialize
     digitalWrite(BleCSPin, PinLevelHigh);
     _delay_us(SdepBackOff);
     digitalWrite(BleCSPin, PinLevelLow);
-  }
+  } while (timer_elapsed(timerStart) < timeout);
 
-  if (timer_elapsed32(timerStart) < SdepTimeout) {
+  if (ready) {
     // Slave is ready; send the rest of the packet
     spi_send_bytes(&msg->cmd_low,
                    sizeof(*msg) - (1 + sizeof(msg->payload)) + msg->len);
@@ -220,10 +273,6 @@ static bool sdep_send_pkt(const struct sdep_msg *msg) {
   }
 
   digitalWrite(BleCSPin, PinLevelHigh);
-  if (!success) {
-    xprintf("send_pkt success=%d\n", success);
-    dump_pkt(msg);
-  }
 
   return success;
 }
@@ -237,27 +286,31 @@ static inline void sdep_build_pkt(struct sdep_msg *msg, uint16_t command,
   msg->len = len;
   msg->more = (moredata && len == SdepMaxPayload) ? 1 : 0;
 
-  _Static_assert(sizeof(*msg) == 20, "msg is correctly packed");
+  static_assert(sizeof(*msg) == 20, "msg is correctly packed");
 
   memcpy(msg->payload, payload, len);
 }
 
 // Read a single SDEP packet
-static bool sdep_recv_pkt(struct sdep_msg *msg) {
+static bool sdep_recv_pkt(struct sdep_msg *msg, uint16_t timeout) {
   bool success = false;
-  uint32_t timerStart = timer_read32();
-  uint32_t timeout = SdepTimeout * 2;
+  uint16_t timerStart = timer_read();
+  bool ready = false;
 
-  while (!digitalRead(BleIRQPin) && timer_elapsed32(timerStart) < timeout) {
+  do {
+    ready = digitalRead(BleIRQPin);
+    if (ready) {
+      break;
+    }
     _delay_us(1);
-  }
+  } while (timer_elapsed(timerStart) < timeout);
 
-  if (timer_elapsed32(timerStart) < timeout) {
+  if (ready) {
     SPI_begin(&spi);
 
     digitalWrite(BleCSPin, PinLevelLow);
 
-    while (timer_elapsed32(timerStart) < timeout) {
+    do {
       // Read the command type, waiting for the data to be ready
       msg->type = spi_read_byte();
       if (msg->type == SdepSlaveNotReady || msg->type == SdepSlaveOverflow) {
@@ -277,65 +330,221 @@ static bool sdep_recv_pkt(struct sdep_msg *msg) {
       }
       success = true;
       break;
-    }
+    } while (timer_elapsed(timerStart) < timeout);
 
     digitalWrite(BleCSPin, PinLevelHigh);
-  } else {
-    xprintf("note: IRQ was never asserted\n");
   }
-  if (!success) xprintf("success = %d, elapsed %d\n", success, timer_elapsed32(timerStart));
   return success;
 }
 
-static bool send_buf_read_one(void) {
-
-  if (send_buf.waiting_for_result) {
-    if (digitalRead(BleIRQPin)) {
-      struct sdep_msg msg;
-
-      while (sdep_recv_pkt(&msg)) {
-        if (!msg.more) {
-          break;
-        }
-      }
-      // It takes about 5-6ms to get a response
-//      xprintf("async: now=%lu sent %lu\n", timer_read32(), send_buf.last_send);
-      send_buf.waiting_for_result = false;
-#if 0
-      print("async ");
-      dump_pkt(&msg);
-#endif
-
-      return true;
-
-    } else if (timer_elapsed32(send_buf.last_send) > SdepTimeout * 2) {
-      print("waiting_for_result: IRQ was never ready\n");
-      send_buf.waiting_for_result = false;
-
-      return true;
-    } else {
-      // It's ok, we can wait
-      return false;
-    }
+static void resp_buf_read_one(bool greedy) {
+  uint16_t last_send;
+  if (!resp_buf.peek(last_send)) {
+    return;
   }
 
-  struct queue_item item;
-  if (send_buf_dequeue(&item)) {
-    process_queue_item(&item);
+  if (digitalRead(BleIRQPin)) {
+    struct sdep_msg msg;
+
+again:
+    if (sdep_recv_pkt(&msg, SdepTimeout)) {
+      if (!msg.more) {
+        // We got it; consume this entry
+        resp_buf.get(last_send);
+        dprintf("recv latency %dms\n", TIMER_DIFF_16(timer_read(),last_send));
+      }
+
+      if (greedy && resp_buf.peek(last_send) && digitalRead(BleIRQPin)) {
+        goto again;
+      }
+    }
+
+  } else if (timer_elapsed(last_send) > SdepTimeout * 2) {
+    dprintf("waiting_for_result: timeout, resp_buf size %d\n",
+            (int)resp_buf.size());
+
+    // Timed out: consume this entry
+    resp_buf.get(last_send);
+  }
+}
+
+#ifdef CONSOLIDATE_REPORTS
+// Try to merge a sequence of key reports into a single report
+// to work around processing latency in the BLE module.
+static bool construct_next_report(queue_item &item) {
+  queue_item lookAhead[6];
+  auto n = send_buf.get(lookAhead, 6, false);
+
+  if (n == 0) {
+    return false;
+  }
+
+  // We can only consolidate regular key reports
+  if (lookAhead[0].queue_type != QTKeyReport) {
+    item = lookAhead[0];
     return true;
   }
 
-  return false;
+  // Ensure that we are looking at 3+ consecutive reports.
+  // We'll attempt to merge all but the last of these; we leave the
+  // last so that we can guarantee that another report will be sent
+  // next time around and have that implicitly track key releases
+  // that we're squashing out in here.
+  for (uint8_t i = 1; i < n; ++i) {
+    if (lookAhead[i].queue_type != QTKeyReport) {
+      n = i - 1;
+      break;
+    }
+  }
+
+  if (n < 3) {
+    // Don't have enough to work with
+    item = lookAhead[0];
+    return true;
+  }
+
+  // Don't look at the last of these
+  --n;
+
+  // Given the sequence [B-----]
+  //                    [BC----]
+  //                    [--D---]
+  //                    [------]
+  // we want to consolidate the reports to
+  //                    [BCD---]
+  //                    [------]
+
+  ble_key_report intended, keysUp;
+  intended.clear();
+  keysUp.clear();
+
+  uint8_t numMerged = 0;
+
+  for (uint8_t i = 0; i < n; ++i) {
+    bool canConsolidate = true;
+    auto &item = lookAhead[i];
+
+    // Make a copy of the intended set while we work through the rules
+    // below.  If we pass all the tests, we'll replace intended with
+    // keyCheck.
+    auto keyCheck = intended;
+
+    // First look at modifiers; the rule is that we can change modifiers
+    // in the intended set provided that no keys are pressed in
+    // the intended set.
+    if (item.key.modifier != keyCheck.modifier) {
+      if (keyCheck.areAnyKeysDown()) {
+        break;
+      }
+
+      keyCheck.modifier = item.key.modifier;
+    }
+
+    // Now consider key presses
+    for (uint8_t k = 0; k < 6; ++k) {
+      auto keyCode = item.key.keys[k];
+      if (keyCode == 0) {
+        continue;
+      }
+
+      // If we have a pending keyUp for this keycode,
+      // we cannot consolidate this keyDown report
+      if (keysUp.idxForKey(keyCode) != -1) {
+        canConsolidate = false;
+        break;
+      }
+
+      if (!keyCheck.addKey(keyCode)) {
+        // There is no room to add this one
+        canConsolidate = false;
+        break;
+      }
+    }
+
+    // And key releases; anything in keyCheck and not in
+    // item was released.  Make sure that we have room for
+    // those entries.
+    for (uint8_t k = 0; k < 6; ++k) {
+      auto keyCode = keyCheck.keys[k];
+      if (keyCode == 0) {
+        continue;
+      }
+      if (item.key.idxForKey(keyCode) == -1) {
+        // It's a keyUp
+        if (!keysUp.addKey(keyCode)) {
+          // No room to remember the keyUp
+          canConsolidate = false;
+          break;
+        }
+      }
+    }
+
+    if (!canConsolidate) {
+      break;
+    }
+
+    // Now update the intended state
+    intended = keyCheck;
+    ++numMerged;
+  }
+
+  // Didn't change anything; just report the first item
+  if (numMerged < 2) {
+    item = lookAhead[0];
+    return true;
+  }
+
+  // Pop the first few items off the front, leaving just one item
+  // to hold this updated report
+  send_buf.get(lookAhead, numMerged - 1, true);
+
+  auto &front = send_buf.front();
+  front.key = intended;
+  front.added = lookAhead[0].added;
+
+  item = front;
+  return true;
+}
+#endif
+
+static void send_buf_send_one(uint16_t timeout = SdepTimeout) {
+  struct queue_item item;
+
+#if !PIPELINE_SENDS
+  // Don't send anything more until we get an ACK
+  if (!resp_buf.empty()) {
+    return;
+  }
+#endif
+
+#ifdef CONSOLIDATE_REPORTS
+  if (!construct_next_report(item)) {
+    return;
+  }
+#else
+  if (!send_buf.peek(item)) {
+    return;
+  }
+#endif
+  if (process_queue_item(&item, timeout)) {
+    // commit that peek
+    send_buf.get(item);
+    dprintf("send_buf_send_one: have %d remaining\n", (int)send_buf.size());
+  } else {
+    dprint("failed to send, will retry\n");
+    _delay_ms(SdepTimeout);
+    resp_buf_read_one(true);
+  }
 }
 
-static void send_buf_wait(const char *cmd) {
+static void resp_buf_wait(const char *cmd) {
   bool didPrint = false;
-  while (send_buf.waiting_for_result || send_buf.head != send_buf.tail) {
+  while (!resp_buf.empty()) {
     if (!didPrint) {
-      xprintf("wait on buf for %s\n", cmd);
+      dprintf("wait on buf for %s\n", cmd);
       didPrint = true;
     }
-    send_buf_read_one();
+    resp_buf_read_one(true);
   }
 }
 
@@ -374,15 +583,10 @@ static bool read_response(char *resp, uint16_t resplen, bool verbose) {
   while (true) {
     struct sdep_msg msg;
 
-    if (!sdep_recv_pkt(&msg)) {
-      print("sdep_recv_pkt failed\n");
+    if (!sdep_recv_pkt(&msg, 2 * SdepTimeout)) {
+      dprint("sdep_recv_pkt failed\n");
       return false;
     }
-
-#if 0
-    print("recv ");
-    dump_pkt(&msg);
-#endif
 
     if (msg.type != SdepResponse) {
       *resp = 0;
@@ -426,44 +630,51 @@ static bool read_response(char *resp, uint16_t resplen, bool verbose) {
   success = !strcmp_P(last_line, kOK );
 
   if (verbose || !success) {
-    xprintf("result: %s\n", resp);
+    dprintf("result: %s\n", resp);
   }
   return success;
 }
 
-bool ble_at_command(const char *cmd, char *resp, uint16_t resplen, bool verbose) {
+static bool ble_at_command(const char *cmd, char *resp, uint16_t resplen,
+                           bool verbose, uint16_t timeout) {
   const char *end = cmd + strlen(cmd);
   struct sdep_msg msg;
 
   if (verbose) {
-    xprintf("ble send: %s\n", cmd);
+    dprintf("ble send: %s\n", cmd);
   }
 
   if (resp) {
     // They want to decode the response, so we need to flush and wait
     // for all pending I/O to finish before we start this one, so
     // that we don't confuse the results
-    send_buf_wait(cmd);
+    resp_buf_wait(cmd);
     *resp = 0;
   }
 
   // Fragment the command into a series of SDEP packets
   while (end - cmd > SdepMaxPayload) {
     sdep_build_pkt(&msg, BleAtWrapper, (uint8_t *)cmd, SdepMaxPayload, true);
-    if (!sdep_send_pkt(&msg)) {
+    if (!sdep_send_pkt(&msg, timeout)) {
       return false;
     }
     cmd += SdepMaxPayload;
   }
 
   sdep_build_pkt(&msg, BleAtWrapper, (uint8_t *)cmd, end - cmd, false);
-  if (!sdep_send_pkt(&msg)) {
+  if (!sdep_send_pkt(&msg, timeout)) {
     return false;
   }
 
   if (resp == NULL) {
-    send_buf.waiting_for_result = true;
-    send_buf.last_send = timer_read32();
+    auto now = timer_read();
+    while (!resp_buf.enqueue(now)) {
+      resp_buf_read_one(false);
+    }
+    auto later = timer_read();
+    if (TIMER_DIFF_16(later, now) > 0) {
+      dprintf("waited %dms for resp_buf\n", TIMER_DIFF_16(later, now));
+    }
     return true;
   }
 
@@ -471,7 +682,7 @@ bool ble_at_command(const char *cmd, char *resp, uint16_t resplen, bool verbose)
 }
 
 bool ble_at_command_P(const char *cmd, char *resp, uint16_t resplen) {
-  char *cmdbuf  = alloca(strlen_P(cmd) + 1);
+  auto cmdbuf = (char *)alloca(strlen_P(cmd) + 1);
   strcpy_P(cmdbuf, cmd);
   return ble_at_command(cmdbuf, resp, resplen, false);
 }
@@ -504,7 +715,7 @@ bool ble_enable_keyboard(void) {
 
   // Turn down the power level a bit
 //  static const char kPower[] PROGMEM = "AT+BLEPOWERLEVEL=-12";
-  static const PGM_P const configure_commands[] PROGMEM = {
+  static PGM_P const configure_commands[] PROGMEM = {
     kEcho,
     kGapDevName,
     kHidEnOn,
@@ -520,7 +731,7 @@ bool ble_enable_keyboard(void) {
     memcpy_P(&cmd, configure_commands + i, sizeof(cmd));
 
     if (!ble_at_command_P(cmd, resbuf, sizeof(resbuf))) {
-      xprintf("failed BLE command: %S: %s\n", cmd, resbuf);
+      dprintf("failed BLE command: %S: %s\n", cmd, resbuf);
       goto fail;
     }
   }
@@ -529,18 +740,10 @@ bool ble_enable_keyboard(void) {
 
   // Check connection status in a little while; allow the ATZ time
   // to kick in.
-  last_connection_update = timer_read32();
+  last_connection_update = timer_read();
   connection_interval = ConnectionUpdateMinInterval;
 fail:
   return configured;
-}
-
-int ble_get_rssi(void) {
-  char resbuf[32];
-
-  static const char kGetRSSI[] PROGMEM = "AT+BLEGETRSSI";
-  ble_at_command_P(kGetRSSI, resbuf, sizeof(resbuf));
-  return atoi(resbuf);
 }
 
 void ble_task(void) {
@@ -549,13 +752,11 @@ void ble_task(void) {
   if (!configured && !ble_enable_keyboard()) {
     return;
   }
+  resp_buf_read_one(true);
+  send_buf_send_one(SdepShortTimeout);
 
-  if (send_buf_read_one()) {
-    // Arrange to re-check connection after keys have settled
-    connection_interval = ConnectionUpdateMinInterval;
-    last_connection_update = timer_read32();
-  } else if (!send_buf.waiting_for_result && (event_flags & UsingEvents) &&
-             digitalRead(BleIRQPin)) {
+  if (resp_buf.empty() && (event_flags & UsingEvents) &&
+      digitalRead(BleIRQPin)) {
     // Must be an event update
     if (ble_at_command_P(PSTR("AT+EVENTSTATUS"), resbuf, sizeof(resbuf))) {
       uint32_t mask = strtoul(resbuf, NULL, 16);
@@ -570,7 +771,8 @@ void ble_task(void) {
     }
   }
 
-  if (timer_elapsed32(last_connection_update) > connection_interval) {
+  if (timer_elapsed(last_connection_update) > connection_interval) {
+    bool shouldPoll = true;
     if (!(event_flags & ProbedEvents)) {
       // Request notifications about connection status changes
       if (ble_at_command_P(PSTR("AT+EVENTENABLE=0x1"), resbuf, sizeof(resbuf))) {
@@ -578,10 +780,15 @@ void ble_task(void) {
         event_flags |= UsingEvents;
       }
       event_flags |= ProbedEvents;
+
+      // leave shouldPoll == true so that we check at least once
+      // before relying solely on events
+    } else {
+      shouldPoll = false;
     }
 
     static const char kGetConn[] PROGMEM = "AT+GAPGETCONN";
-    last_connection_update = timer_read32();
+    last_connection_update = timer_read();
 
     if (ble_at_command_P(kGetConn, resbuf, sizeof(resbuf))) {
       int state = atoi(resbuf);
@@ -606,8 +813,9 @@ void ble_task(void) {
   }
 
 #ifdef SAMPLE_BATTERY
-  if (timer_elapsed32(last_battery_update) > BatteryUpdateInterval) {
-    last_battery_update = timer_read32();
+  if (timer_elapsed(last_battery_update) > BatteryUpdateInterval &&
+      resp_buf.empty()) {
+    last_battery_update = timer_read();
 
     if (ble_at_command_P(PSTR("AT+HWVBAT"), resbuf, sizeof(resbuf))) {
       vbat = atoi(resbuf);
@@ -616,82 +824,20 @@ void ble_task(void) {
 #endif
 }
 
-// Writes a sequence of bytes to the send queue.
-// Returns false if there is not enough room.
-static bool send_buf_write_bytes(const uint8_t *bytes, uint8_t len) {
-  uint8_t head = send_buf.head;
-  const uint8_t *end = bytes + len;
-
-  while (bytes < end) {
-    uint8_t next = (head + 1) % SdepRingBufSize;
-    if (next == send_buf.tail) {
-      return false;
-    }
-    send_buf.buf[head] = *bytes;
-    head = next;
-    ++bytes;
-  }
-  // only move the head if everything fits
-  send_buf.head = head;
-  return true;
-}
-
-static bool send_buf_dequeue(struct queue_item *item) {
-  uint8_t tail = send_buf.tail;
-
-  if (send_buf.head == tail) {
-    // Empty
-    return false;
-  }
-
-  item->queue_type = send_buf.buf[tail];
-  tail = (tail + 1) % SdepRingBufSize;
-  uint8_t len;
-
-  switch (item->queue_type) {
-    case QTKeyReport:
-      len = sizeof(item->key);
-      break;
-    case QTConsumer:
-      len = sizeof(item->consumer);
-      break;
-#ifdef MOUSE_ENABLE
-    case QTMouseMove:
-      len = sizeof(item->mousemove);
-      break;
-#endif
-    broken:
-    default:
-      print("argh, send buffer contents are corrupt\n");
-      send_buf.head = send_buf.tail = 0;
-      return false;
-  }
-
-  // Write to the first byte following the type
-  uint8_t *dest = &item->key.modifier;
-  uint8_t *end = dest + len;
-
-  while (dest < end) {
-    if (send_buf.head == tail) {
-      goto broken;
-    }
-    *dest = send_buf.buf[tail];
-    tail = (tail + 1) % SdepRingBufSize;
-    ++dest;
-  }
-
-  // Commit the new tail position
-  send_buf.tail = tail;
-  return true;
-}
-
-static void process_queue_item(struct queue_item *item) {
+static bool process_queue_item(struct queue_item *item, uint16_t timeout) {
   char cmdbuf[48];
   char fmtbuf[64];
 
   // Arrange to re-check connection after keys have settled
   connection_interval = ConnectionUpdateMinInterval;
-  last_connection_update = timer_read32();
+  last_connection_update = timer_read();
+
+#if 1
+  if (TIMER_DIFF_16(last_connection_update, item->added) > 0) {
+    dprintf("send latency %dms\n",
+            TIMER_DIFF_16(last_connection_update, item->added));
+  }
+#endif
 
   switch (item->queue_type) {
     case QTKeyReport:
@@ -700,23 +846,22 @@ static void process_queue_item(struct queue_item *item) {
       snprintf(cmdbuf, sizeof(cmdbuf), fmtbuf, item->key.modifier,
                item->key.keys[0], item->key.keys[1], item->key.keys[2],
                item->key.keys[3], item->key.keys[4], item->key.keys[5]);
-      ble_at_command(cmdbuf, NULL, 0, false);
-      return;
+      return ble_at_command(cmdbuf, NULL, 0, true, timeout);
 
     case QTConsumer:
       strcpy_P(fmtbuf, PSTR("AT+BLEHIDCONTROLKEY=0x%04x"));
       snprintf(cmdbuf, sizeof(cmdbuf), fmtbuf, item->consumer);
-      ble_at_command(cmdbuf, NULL, 0, true);
-      return;
+      return ble_at_command(cmdbuf, NULL, 0, true, timeout);
 
 #ifdef MOUSE_ENABLE
     case QTMouseMove:
       strcpy_P(fmtbuf, PSTR("AT+BLEHIDMOUSEMOVE=%d,%d,%d,%d"));
       snprintf(cmdbuf, sizeof(cmdbuf), fmtbuf, item->mousemove.x,
           item->mousemove.y, item->mousemove.scroll, item->mousemove.pan);
-      ble_at_command(cmdbuf, NULL, 0, true);
-      return;
+      return ble_at_command(cmdbuf, NULL, 0, true, timeout);
 #endif
+    default:
+      return true;
   }
 }
 
@@ -726,6 +871,7 @@ bool ble_send_keys(uint8_t hid_modifier_mask, uint8_t *keys, uint8_t nkeys) {
 
   item.queue_type = QTKeyReport;
   item.key.modifier = hid_modifier_mask;
+  item.added = timer_read();
 
   while (nkeys >= 0) {
     item.key.keys[0] = keys[0];
@@ -735,16 +881,17 @@ bool ble_send_keys(uint8_t hid_modifier_mask, uint8_t *keys, uint8_t nkeys) {
     item.key.keys[4] = nkeys >= 4 ? keys[4] : 0;
     item.key.keys[5] = nkeys >= 5 ? keys[5] : 0;
 
-    if (!send_buf_write_bytes((uint8_t*)&item, 1 + sizeof(item.key))) {
+    if (!send_buf.enqueue(item)) {
       if (!didWait) {
         print("wait for buf space\n");
         didWait = true;
       }
-      send_buf_read_one();
+      send_buf_send_one();
       continue;
     }
 
     if (nkeys <= 6) {
+      dprint("queue keys\n");
       return true;
     }
 
@@ -761,7 +908,10 @@ bool ble_send_consumer_key(uint16_t keycode, int hold_duration) {
   item.queue_type = QTConsumer;
   item.consumer = keycode;
 
-  return send_buf_write_bytes((uint8_t*)&item, 1 + sizeof(item.consumer));
+  while (!send_buf.enqueue(item)) {
+    send_buf_send_one();
+  }
+  return true;
 }
 
 #ifdef MOUSE_ENABLE
@@ -774,7 +924,10 @@ bool ble_send_mouse_move(int8_t x, int8_t y, int8_t scroll, int8_t pan) {
   item.mousemove.scroll = scroll;
   item.mousemove.pan = pan;
 
-  return send_buf_write_bytes((uint8_t*)&item, 1 + sizeof(item.mousemove));
+  while (!send_buf.enqueue(item)) {
+    send_buf_send_one();
+  }
+  return true;
 }
 #endif
 

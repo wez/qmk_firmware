@@ -22,7 +22,7 @@ ifeq ($(strip $(MIDI_ENABLE)), yes)
 endif
 
 ifeq ($(strip $(BLE_ENABLE)), yes)
-	LUFA_SRC += $(LUFA_DIR)/ble.c
+	LUFA_SRC += $(LUFA_DIR)/ble.cpp
 endif
 
 ifeq ($(strip $(BLUETOOTH_ENABLE)), yes)

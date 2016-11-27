@@ -229,7 +229,7 @@ uint8_t matrix_scan(void) {
 
 #if 0
   debug_enable = true;
-  debug_keyboard = true;
+  debug_keyboard = false;
 #endif
 
   matrix_scan_quantum();

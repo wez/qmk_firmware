@@ -512,8 +512,7 @@ static inline uint8_t where_to_send(void) {
 #endif
 
   // This is the real policy
-  if (USB_DeviceState != DEVICE_STATE_Configured &&
-      USB_DeviceState != DEVICE_STATE_Suspended) {
+  if (USB_DeviceState != DEVICE_STATE_Configured) {
     if (ble_is_connected()) {
       return SendToBLE;
     }
@@ -1090,7 +1089,11 @@ int main(void)
     print("Keyboard start.\n");
     while (1) {
         #ifndef BLUETOOTH_ENABLE
-        while (USB_DeviceState == DEVICE_STATE_Suspended) {
+        while (USB_DeviceState == DEVICE_STATE_Suspended
+#ifdef BLE_ENABLE
+              && !ble_is_connected()
+#endif
+            ) {
             print("[s]");
             suspend_power_down();
             if (USB_Device_RemoteWakeupEnabled && suspend_wakeup_condition()) {

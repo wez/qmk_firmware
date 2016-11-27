@@ -7,13 +7,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-/* Send the full AT command line held in cmd.
- * Will automatically add the newline to the command; don't include it
- * in the string you send in.
- * The response from the command will be stored into the resp buffer.
- * Returns true for an OK response, false for an ERROR response. */
-extern bool ble_at_command(const char *cmd, char *resp, uint16_t resplen, bool verbose);
-extern bool ble_at_command_P(const char *cmd, char *resp, uint16_t resplen);
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Instruct the module to enable HID keyboard support and reset */
 extern bool ble_enable_keyboard(void);
@@ -55,4 +52,9 @@ extern bool ble_send_mouse_move(int8_t x, int8_t y, int8_t scroll, int8_t pan);
 /* Compute battery voltage by reading an analog pin.
  * Returns the integer number of millivolts */
 extern uint32_t ble_read_battery_voltage(void);
+
+#ifdef __cplusplus
+}
 #endif
+
+#endif // BLE_ENABLE

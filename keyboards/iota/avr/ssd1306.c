@@ -5,9 +5,13 @@
 #include <stdio.h>
 #include "print.h"
 #include "iota.h"
-#include "glcdfont.c"
+#include "../common/glcdfont.c"
+#ifdef BLE_ENABLE
 #include "ble.h"
+#endif
+#ifdef PROTOCOL_LUFA
 #include "lufa.h"
+#endif
 
 // Controls the SSD1306 128x32 OLED display via i2c
 
@@ -292,6 +296,7 @@ done:
 void iota_gfx_task(void) {
   iota_gfx_clear_screen();
   iota_gfx_write_P(PSTR("USB: "));
+#ifdef PROTOCOL_LUFA
   switch (USB_DeviceState) {
     case DEVICE_STATE_Unattached:
       iota_gfx_write_P(PSTR("Unattached"));
@@ -314,14 +319,22 @@ void iota_gfx_task(void) {
     default:
       iota_gfx_write_P(PSTR("Invalid"));
   }
+#endif
   iota_gfx_write_P(PSTR("\nBLE: "));
+#ifdef BLE_ENABLE
   iota_gfx_write_P(ble_is_connected() ? PSTR("Connected")
                                       : PSTR("Not Connected"));
+#endif
   iota_gfx_write_P(PSTR("\n"));
 
   char buf[40];
   snprintf(buf, sizeof(buf), "Mod 0x%02x VBat: %4lumVLayer: 0x%04lx", get_mods(),
-           ble_read_battery_voltage(), layer_state);
+#ifdef BLE_ENABLE
+           ble_read_battery_voltage(),
+#else
+           0LU,
+#endif
+           layer_state);
   iota_gfx_write(buf);
 
 

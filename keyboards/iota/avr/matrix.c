@@ -29,10 +29,15 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "util.h"
 #include "wait.h"
 #include "pincontrol.h"
+#ifdef PROTOCOL_LUFA
 #include "lufa.h"
+#endif
 #include "suspend.h"
+#ifdef BLE_ENABLE
 #include "ble.h"
+#endif
 #include <util/atomic.h>
+#include <string.h>
 
 // The keyboard matrix is attached to the following pins:
 // row0: A0 - PF7

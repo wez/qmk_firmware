@@ -565,6 +565,13 @@ static const uint8_t usb_string_langid[] = {
          19,18,17,16,15,14,13,12,11,10, \
          9,8,7,6,5,4,3,2,1,0
 
+#ifndef USBSTR_MANUFACTURER
+# define USBSTR_MANUFACTURER 'Q', 0, 'M', 0, 'K', 0, 0xc6, 0
+#endif
+#ifndef USBSTR_PRODUCT
+# define USBSTR_PRODUCT 'Q', 0, 'M', 0, 'K', 0
+#endif
+
 /* Vendor string = manufacturer */
 static const uint8_t usb_string_vendor[] = {
   USB_DESC_BYTE(PP_NARG(USBSTR_MANUFACTURER)+2),                       // bLength

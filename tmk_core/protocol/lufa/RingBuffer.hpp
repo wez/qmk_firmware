@@ -18,6 +18,7 @@ class RingBuffer {
   }
 
   inline bool enqueue(const T &item) {
+    static_assert(Size > 1, "RingBuffer size must be > 1");
     uint8_t next = nextPosition(head_);
     if (next == tail_) {
       // Full
@@ -29,46 +30,24 @@ class RingBuffer {
     return true;
   }
 
-  inline bool enqueue(const T *item, uint8_t num) {
-    const T *end = item + num;
-    uint8_t head = head_;
-
-    while (item < end) {
-      uint8_t next = nextPosition(head);
-      if (next == tail_) {
-        // No room for this many items
-        return false;
-      }
-      buf_[head] = *item;
-      head = next;
-      ++item;
-    }
-
-    // We have enough room for all of it, so commit it
-    head_ = head;
-    return true;
-  }
-
-  inline uint8_t get(T *dest, uint8_t num, bool commit) {
+  inline bool get(T &dest, bool commit = true) {
     auto tail = tail_;
-    uint8_t numFilled = 0;
-    while (numFilled < num) {
-      if (tail == head_) {
-        // No more data
-        break;
-      }
-
-      dest[numFilled++] = buf_[tail];
-      tail = nextPosition(tail);
+    if (tail == head_) {
+      // No more data
+      return false;
     }
+
+    dest = buf_[tail];
+    tail = nextPosition(tail);
 
     if (commit) {
       tail_ = tail;
     }
-    return numFilled;
+    return true;
   }
 
   inline bool empty() const { return head_ == tail_; }
+
   inline uint8_t size() const {
     int diff = head_ - tail_;
     if (diff >= 0) {
@@ -82,10 +61,6 @@ class RingBuffer {
   }
 
   inline bool peek(T &item) {
-    return get(&item, 1, false);
-  }
-
-  inline bool get(T &item) {
-    return get(&item, 1, true);
+    return get(item, false);
   }
 };

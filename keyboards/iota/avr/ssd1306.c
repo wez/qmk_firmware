@@ -12,6 +12,13 @@
 #ifdef PROTOCOL_LUFA
 #include "lufa.h"
 #endif
+#include "sendchar.h"
+
+// Set this to 1 to help diagnose early startup problems
+// when testing power-on with ble.  Turn it off otherwise,
+// as the latency of printing most of the debug info messes
+// with the matrix scan, causing keys to drop.
+#define DEBUG_TO_SCREEN 0
 
 // Controls the SSD1306 128x32 OLED display via i2c
 
@@ -29,6 +36,9 @@
 static uint8_t display[MatrixRows][MatrixCols];
 static uint8_t *cursor;
 static bool dirty;
+#if DEBUG_TO_SCREEN
+static uint8_t displaying;
+#endif
 
 enum ssd1306_cmds {
   DisplayOff = 0xae,
@@ -149,6 +159,19 @@ done:
   i2c_stop();
 }
 
+#if DEBUG_TO_SCREEN
+#undef sendchar
+static int8_t capture_sendchar(uint8_t c) {
+  sendchar(c);
+  iota_gfx_write_char(c);
+
+  if (!displaying) {
+    iota_gfx_flush();
+  }
+  return 0;
+}
+#endif
+
 bool iota_gfx_init(void) {
   bool success = false;
 
@@ -180,6 +203,10 @@ bool iota_gfx_init(void) {
 
   iota_gfx_write_P(PSTR(STR(PRODUCT) " " STR(DESCRIPTION)));
   iota_gfx_flush();
+
+#if DEBUG_TO_SCREEN
+  print_set_sendchar(capture_sendchar);
+#endif
 
 done:
   return success;
@@ -261,6 +288,10 @@ void iota_gfx_clear_screen(void) {
 }
 
 void iota_gfx_flush(void) {
+#if DEBUG_TO_SCREEN
+  ++displaying;
+#endif
+
   // Move to the home position
   send_cmd3(PageAddr, 0, MatrixRows - 1);
   send_cmd3(ColumnAddr, 0, (MatrixCols * FontWidth) - 1);
@@ -291,9 +322,18 @@ void iota_gfx_flush(void) {
 
 done:
   i2c_stop();
+#if DEBUG_TO_SCREEN
+  --displaying;
+#endif
 }
 
-void iota_gfx_task(void) {
+static void render_status_info(void) {
+#if DEBUG_TO_SCREEN
+  if (debug_enable) {
+    return;
+  }
+#endif
+
   iota_gfx_clear_screen();
   iota_gfx_write_P(PSTR("USB: "));
 #ifdef PROTOCOL_LUFA
@@ -323,20 +363,24 @@ void iota_gfx_task(void) {
   iota_gfx_write_P(PSTR("\nBLE: "));
 #ifdef BLE_ENABLE
   iota_gfx_write_P(ble_is_connected() ? PSTR("Connected")
-                                      : PSTR("Not Connected"));
+      : PSTR("Not Connected"));
 #endif
   iota_gfx_write_P(PSTR("\n"));
 
   char buf[40];
-  snprintf(buf, sizeof(buf), "Mod 0x%02x VBat: %4lumVLayer: 0x%04lx", get_mods(),
+  snprintf(buf, sizeof(buf), "Mod 0x%02x VBat: %4lumVLayer: 0x%04lx",
+      get_mods(),
 #ifdef BLE_ENABLE
-           ble_read_battery_voltage(),
+      ble_read_battery_voltage(),
 #else
-           0LU,
+      0LU,
 #endif
-           layer_state);
+      layer_state);
   iota_gfx_write(buf);
+}
 
+void iota_gfx_task(void) {
+  render_status_info();
 
   if (dirty) {
     iota_gfx_flush();

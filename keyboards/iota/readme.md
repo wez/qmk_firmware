@@ -10,10 +10,7 @@ This is my (@wez) first keyboard build from scratch.  It has the following featu
 - An SSD1306 OLED display for some basic status
 
 When the keyboard is not connected over USB, and when a battery is attached, it
-will send keys over Bluetooth Low Energy (BLE).  The BLE support is what I
-consider to be "functional" but not great; there is some latency overhead
-that needs to be solved in the firmware on the BLE controller embedded in
-the Feather board.  (This is next on my list).
+will send keys over Bluetooth Low Energy (BLE).
 
 The schematic for this build: ![schematic](schematic.png)
 

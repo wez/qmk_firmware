@@ -1088,12 +1088,8 @@ int main(void)
 
     print("Keyboard start.\n");
     while (1) {
-        #ifndef BLUETOOTH_ENABLE
-        while (USB_DeviceState == DEVICE_STATE_Suspended
-#ifdef BLE_ENABLE
-              && !ble_is_connected()
-#endif
-            ) {
+        #if !defined( BLUETOOTH_ENABLE) && !defined(BLE_ENABLE)
+        while (USB_DeviceState == DEVICE_STATE_Suspended) {
             print("[s]");
             suspend_power_down();
             if (USB_Device_RemoteWakeupEnabled && suspend_wakeup_condition()) {

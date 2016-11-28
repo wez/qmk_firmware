@@ -10,24 +10,24 @@
 #include "action_util.h"
 #include "RingBuffer.hpp"
 
-#undef CONSOLIDATE_REPORTS // Doesn't work very well
-#define PIPELINE_SENDS 0   // Helps a little, but can crash BLE
-
-static volatile bool is_connected;
-static bool initialized;
-static bool configured;
 #define SAMPLE_BATTERY
-#ifdef SAMPLE_BATTERY
-static uint16_t last_battery_update;
-static uint32_t vbat;
-#endif
-#define ConnectionUpdateMinInterval 1000 /* milliseconds */
-#define ConnectionUpdateMaxInterval 1000 /* milliseconds */
-static uint16_t last_connection_update;
-static uint16_t connection_interval = ConnectionUpdateMinInterval;
-static uint8_t event_flags;
+#define ConnectionUpdateInterval 1000 /* milliseconds */
+
+static struct {
+  bool is_connected;
+  bool initialized;
+  bool configured;
+
 #define ProbedEvents 1
 #define UsingEvents 2
+  bool event_flags;
+
+#ifdef SAMPLE_BATTERY
+  uint16_t last_battery_update;
+  uint32_t vbat;
+#endif
+  uint16_t last_connection_update;
+} state;
 
 // Commands are encoded using SDEP and sent via SPI
 // https://github.com/adafruit/Adafruit_BluefruitLE_nRF51/blob/master/SDEP.md
@@ -58,51 +58,15 @@ enum queue_type {
 #endif
 };
 
-struct __attribute__((packed)) ble_key_report {
-  uint8_t modifier;
-  uint8_t keys[6];
-
-  void clear() {
-    memset(this, 0, sizeof(*this));
-  }
-
-  bool areAnyKeysDown() const {
-    for (uint8_t i = 0; i < 6; ++i) {
-      if (keys[i]) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  int8_t idxForKey(uint8_t k) {
-    for (uint8_t i = 0; i < 6; ++i) {
-      if (keys[i] == k) {
-        return i;
-      }
-    }
-    return -1;
-  }
-
-  bool addKey(uint8_t key) {
-    for (uint8_t i = 0; i < 6; ++i) {
-      if (keys[i] == key) {
-        return true;
-      }
-      if (keys[i] == 0) {
-        keys[i] = key;
-        return true;
-      }
-    }
-    return true;
-  }
-};
-
 struct queue_item {
   enum queue_type queue_type;
   uint16_t added;
   union __attribute__((packed)) {
-    ble_key_report key;
+    struct __attribute__((packed)) {
+      uint8_t modifier;
+      uint8_t keys[6];
+    } key;
+
     uint16_t consumer;
     struct __attribute__((packed)) {
       uint8_t x, y, scroll, pan;
@@ -112,12 +76,10 @@ struct queue_item {
 
 // Items that we wish to send
 static RingBuffer<queue_item, 40> send_buf;
-
-// Time values at which we sent a packet that expects a response.
-// The hardware seemingly accepts a very small number of outstanding
-// requests, and bumping this up to 5-6 kind of works, but it is
-// possible to type quickly enough to overflow the harware.
-static RingBuffer<uint16_t, 6> resp_buf;
+// Pending response; while pending, we can't send any more requests.
+// This records the time at which we sent the command for which we
+// are expecting a response.
+static RingBuffer<uint16_t, 2> resp_buf;
 
 static bool process_queue_item(struct queue_item *item, uint16_t timeout);
 
@@ -351,7 +313,7 @@ again:
       if (!msg.more) {
         // We got it; consume this entry
         resp_buf.get(last_send);
-        dprintf("recv latency %dms\n", TIMER_DIFF_16(timer_read(),last_send));
+        dprintf("recv latency %dms\n", TIMER_DIFF_16(timer_read(), last_send));
       }
 
       if (greedy && resp_buf.peek(last_send) && digitalRead(BleIRQPin)) {
@@ -368,164 +330,17 @@ again:
   }
 }
 
-#ifdef CONSOLIDATE_REPORTS
-// Try to merge a sequence of key reports into a single report
-// to work around processing latency in the BLE module.
-static bool construct_next_report(queue_item &item) {
-  queue_item lookAhead[6];
-  auto n = send_buf.get(lookAhead, 6, false);
-
-  if (n == 0) {
-    return false;
-  }
-
-  // We can only consolidate regular key reports
-  if (lookAhead[0].queue_type != QTKeyReport) {
-    item = lookAhead[0];
-    return true;
-  }
-
-  // Ensure that we are looking at 3+ consecutive reports.
-  // We'll attempt to merge all but the last of these; we leave the
-  // last so that we can guarantee that another report will be sent
-  // next time around and have that implicitly track key releases
-  // that we're squashing out in here.
-  for (uint8_t i = 1; i < n; ++i) {
-    if (lookAhead[i].queue_type != QTKeyReport) {
-      n = i - 1;
-      break;
-    }
-  }
-
-  if (n < 3) {
-    // Don't have enough to work with
-    item = lookAhead[0];
-    return true;
-  }
-
-  // Don't look at the last of these
-  --n;
-
-  // Given the sequence [B-----]
-  //                    [BC----]
-  //                    [--D---]
-  //                    [------]
-  // we want to consolidate the reports to
-  //                    [BCD---]
-  //                    [------]
-
-  ble_key_report intended, keysUp;
-  intended.clear();
-  keysUp.clear();
-
-  uint8_t numMerged = 0;
-
-  for (uint8_t i = 0; i < n; ++i) {
-    bool canConsolidate = true;
-    auto &item = lookAhead[i];
-
-    // Make a copy of the intended set while we work through the rules
-    // below.  If we pass all the tests, we'll replace intended with
-    // keyCheck.
-    auto keyCheck = intended;
-
-    // First look at modifiers; the rule is that we can change modifiers
-    // in the intended set provided that no keys are pressed in
-    // the intended set.
-    if (item.key.modifier != keyCheck.modifier) {
-      if (keyCheck.areAnyKeysDown()) {
-        break;
-      }
-
-      keyCheck.modifier = item.key.modifier;
-    }
-
-    // Now consider key presses
-    for (uint8_t k = 0; k < 6; ++k) {
-      auto keyCode = item.key.keys[k];
-      if (keyCode == 0) {
-        continue;
-      }
-
-      // If we have a pending keyUp for this keycode,
-      // we cannot consolidate this keyDown report
-      if (keysUp.idxForKey(keyCode) != -1) {
-        canConsolidate = false;
-        break;
-      }
-
-      if (!keyCheck.addKey(keyCode)) {
-        // There is no room to add this one
-        canConsolidate = false;
-        break;
-      }
-    }
-
-    // And key releases; anything in keyCheck and not in
-    // item was released.  Make sure that we have room for
-    // those entries.
-    for (uint8_t k = 0; k < 6; ++k) {
-      auto keyCode = keyCheck.keys[k];
-      if (keyCode == 0) {
-        continue;
-      }
-      if (item.key.idxForKey(keyCode) == -1) {
-        // It's a keyUp
-        if (!keysUp.addKey(keyCode)) {
-          // No room to remember the keyUp
-          canConsolidate = false;
-          break;
-        }
-      }
-    }
-
-    if (!canConsolidate) {
-      break;
-    }
-
-    // Now update the intended state
-    intended = keyCheck;
-    ++numMerged;
-  }
-
-  // Didn't change anything; just report the first item
-  if (numMerged < 2) {
-    item = lookAhead[0];
-    return true;
-  }
-
-  // Pop the first few items off the front, leaving just one item
-  // to hold this updated report
-  send_buf.get(lookAhead, numMerged - 1, true);
-
-  auto &front = send_buf.front();
-  front.key = intended;
-  front.added = lookAhead[0].added;
-
-  item = front;
-  return true;
-}
-#endif
-
 static void send_buf_send_one(uint16_t timeout = SdepTimeout) {
   struct queue_item item;
 
-#if !PIPELINE_SENDS
   // Don't send anything more until we get an ACK
   if (!resp_buf.empty()) {
     return;
   }
-#endif
 
-#ifdef CONSOLIDATE_REPORTS
-  if (!construct_next_report(item)) {
-    return;
-  }
-#else
   if (!send_buf.peek(item)) {
     return;
   }
-#endif
   if (process_queue_item(&item, timeout)) {
     // commit that peek
     send_buf.get(item);
@@ -549,9 +364,9 @@ static void resp_buf_wait(const char *cmd) {
 }
 
 static bool ble_init(void) {
-  initialized = false;
-  configured = false;
-  is_connected = false;
+  state.initialized = false;
+  state.configured = false;
+  state.is_connected = false;
 
   pinMode(BleIRQPin, PinDirectionInput);
   pinMode(BleCSPin, PinDirectionOutput);
@@ -568,8 +383,8 @@ static bool ble_init(void) {
 
   _delay_ms(1000); // Give it a second to initialize
 
-  initialized = true;
-  return initialized;
+  state.initialized = true;
+  return state.initialized;
 }
 
 static inline uint8_t min(uint8_t a, uint8_t b) {
@@ -688,18 +503,18 @@ bool ble_at_command_P(const char *cmd, char *resp, uint16_t resplen) {
 }
 
 bool ble_is_connected(void) {
-  return is_connected;
+  return state.is_connected;
 }
 
 
 bool ble_enable_keyboard(void) {
   char resbuf[128];
 
-  if (!initialized && !ble_init()) {
+  if (!state.initialized && !ble_init()) {
     return false;
   }
 
-  configured = false;
+  state.configured = false;
 
   // Disable command echo
   static const char kEcho[] PROGMEM = "ATE=0";
@@ -708,6 +523,14 @@ bool ble_enable_keyboard(void) {
       "AT+GAPDEVNAME=" STR(PRODUCT) " " STR(DESCRIPTION);
   // Turn on keyboard support
   static const char kHidEnOn[] PROGMEM = "AT+BLEHIDEN=1";
+
+  // Adjust intervals to improve latency.  This causes the "central"
+  // system (computer/tablet) to poll us every 10-30 ms.  We can't
+  // set a smaller value than 10ms, and 30ms seems to be the natural
+  // processing time on my macbook.  Keeping it constrained to that
+  // feels reasonable to type to.
+  static const char kGapIntervals[] PROGMEM = "AT+GAPINTERVALS=10,30,,";
+
   // Enable battery level reporting
 //  static const char kBleBatEn[] PROGMEM = "AT+BLEBATTEN";
   // Reset the device so that it picks up the above changes
@@ -717,6 +540,7 @@ bool ble_enable_keyboard(void) {
 //  static const char kPower[] PROGMEM = "AT+BLEPOWERLEVEL=-12";
   static PGM_P const configure_commands[] PROGMEM = {
     kEcho,
+    kGapIntervals,
     kGapDevName,
     kHidEnOn,
 //    kBleBatEn,
@@ -736,50 +560,58 @@ bool ble_enable_keyboard(void) {
     }
   }
 
-  configured = true;
+  state.configured = true;
 
   // Check connection status in a little while; allow the ATZ time
   // to kick in.
-  last_connection_update = timer_read();
-  connection_interval = ConnectionUpdateMinInterval;
+  state.last_connection_update = timer_read();
 fail:
-  return configured;
+  return state.configured;
+}
+
+static void set_connected(bool connected) {
+  if (connected != state.is_connected) {
+    if (connected) {
+      print("****** BLE CONNECT!!!!\n");
+    } else {
+      print("****** BLE DISCONNECT!!!!\n");
+    }
+    state.is_connected = connected;
+  }
 }
 
 void ble_task(void) {
   char resbuf[48];
 
-  if (!configured && !ble_enable_keyboard()) {
+  if (!state.configured && !ble_enable_keyboard()) {
     return;
   }
   resp_buf_read_one(true);
   send_buf_send_one(SdepShortTimeout);
 
-  if (resp_buf.empty() && (event_flags & UsingEvents) &&
+  if (resp_buf.empty() && (state.event_flags & UsingEvents) &&
       digitalRead(BleIRQPin)) {
     // Must be an event update
     if (ble_at_command_P(PSTR("AT+EVENTSTATUS"), resbuf, sizeof(resbuf))) {
       uint32_t mask = strtoul(resbuf, NULL, 16);
 
       if (mask & BleSystemConnected) {
-        is_connected = true;
-        print("****** Event: BLE CONNECT!!!!\n");
+        set_connected(true);
       } else if (mask & BleSystemDisconnected) {
-        is_connected = false;
-        print("****** Event: BLE DISCONNECT!!!!\n");
+        set_connected(false);
       }
     }
   }
 
-  if (timer_elapsed(last_connection_update) > connection_interval) {
+  if (timer_elapsed(state.last_connection_update) > ConnectionUpdateInterval) {
     bool shouldPoll = true;
-    if (!(event_flags & ProbedEvents)) {
+    if (!(state.event_flags & ProbedEvents)) {
       // Request notifications about connection status changes
       if (ble_at_command_P(PSTR("AT+EVENTENABLE=0x1"), resbuf, sizeof(resbuf))) {
         ble_at_command_P(PSTR("AT+EVENTENABLE=0x2"), resbuf, sizeof(resbuf));
-        event_flags |= UsingEvents;
+        state.event_flags |= UsingEvents;
       }
-      event_flags |= ProbedEvents;
+      state.event_flags |= ProbedEvents;
 
       // leave shouldPoll == true so that we check at least once
       // before relying solely on events
@@ -788,37 +620,20 @@ void ble_task(void) {
     }
 
     static const char kGetConn[] PROGMEM = "AT+GAPGETCONN";
-    last_connection_update = timer_read();
+    state.last_connection_update = timer_read();
 
     if (ble_at_command_P(kGetConn, resbuf, sizeof(resbuf))) {
-      int state = atoi(resbuf);
-      if (state != is_connected) {
-
-        if (state) {
-          print("****** BLE CONNECT!!!!\n");
-        } else {
-          print("****** BLE DISCONNECT!!!!\n");
-        }
-      }
-      is_connected = state;
-    }
-
-    // Exponential back off
-    if (connection_interval < ConnectionUpdateMaxInterval) {
-      connection_interval *= 2;
-      if (connection_interval > ConnectionUpdateMaxInterval) {
-        connection_interval = ConnectionUpdateMaxInterval;
-      }
+      set_connected(atoi(resbuf));
     }
   }
 
 #ifdef SAMPLE_BATTERY
-  if (timer_elapsed(last_battery_update) > BatteryUpdateInterval &&
+  if (timer_elapsed(state.last_battery_update) > BatteryUpdateInterval &&
       resp_buf.empty()) {
-    last_battery_update = timer_read();
+    state.last_battery_update = timer_read();
 
     if (ble_at_command_P(PSTR("AT+HWVBAT"), resbuf, sizeof(resbuf))) {
-      vbat = atoi(resbuf);
+      state.vbat = atoi(resbuf);
     }
   }
 #endif
@@ -829,13 +644,12 @@ static bool process_queue_item(struct queue_item *item, uint16_t timeout) {
   char fmtbuf[64];
 
   // Arrange to re-check connection after keys have settled
-  connection_interval = ConnectionUpdateMinInterval;
-  last_connection_update = timer_read();
+  state.last_connection_update = timer_read();
 
 #if 1
-  if (TIMER_DIFF_16(last_connection_update, item->added) > 0) {
+  if (TIMER_DIFF_16(state.last_connection_update, item->added) > 0) {
     dprintf("send latency %dms\n",
-            TIMER_DIFF_16(last_connection_update, item->added));
+            TIMER_DIFF_16(state.last_connection_update, item->added));
   }
 #endif
 
@@ -883,7 +697,7 @@ bool ble_send_keys(uint8_t hid_modifier_mask, uint8_t *keys, uint8_t nkeys) {
 
     if (!send_buf.enqueue(item)) {
       if (!didWait) {
-        print("wait for buf space\n");
+        dprint("wait for buf space\n");
         didWait = true;
       }
       send_buf_send_one();
@@ -936,5 +750,5 @@ bool ble_send_mouse_move(int8_t x, int8_t y, int8_t scroll, int8_t pan) {
 // circuitry cuts it off. By measuring the voltage you can quickly tell when
 // you're heading below 3.7V
 uint32_t ble_read_battery_voltage(void) {
-  return vbat;
+  return state.vbat;
 }

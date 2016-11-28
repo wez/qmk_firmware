@@ -232,11 +232,6 @@ uint8_t matrix_scan(void) {
   }
 #endif
 
-#if 0
-  debug_enable = true;
-  debug_keyboard = false;
-#endif
-
   matrix_scan_quantum();
   return 1;
 }

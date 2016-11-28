@@ -57,9 +57,8 @@ static matrix_row_t matrix_debouncing[MATRIX_ROWS];
 static matrix_row_t matrix[MATRIX_ROWS];
 
 // matrix power saving
-#define MATRIX_POWER_SAVE       10000
+#define MATRIX_POWER_SAVE       600000 // 10 minutes
 static uint32_t matrix_last_modified;
-static bool matrix_powered_on;
 
 #ifdef DEBUG_MATRIX_SCAN_RATE
 static uint32_t scan_timer;
@@ -86,35 +85,15 @@ static void unselect_rows(void) {
   }
 }
 
-#if FANCY_POWER_MGR
 static void select_rows(void) {
   for (uint8_t x = 0; x < MATRIX_ROWS; x++) {
     select_row(x);
   }
 }
 
-// This is just a placeholder so that we can participate in power
-// management without faulting the MCU
-EMPTY_INTERRUPT(INT3_vect);
-#endif
-
 void matrix_power_down(void) {
-  matrix_powered_on = false;
-
-#if FANCY_POWER_MGR
   iota_gfx_off();
-
-  // if any buttons are pressed, we want to wake up.
-  // Set the matrix up for that.
-  select_rows();
-
-  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-    if (iota_mcp23017_enable_interrupts()) {
-      pinMode(PD3, PinDirectionInput);
-      EIMSK |= _BV(INT3);
-    }
-  }
-#endif
+  ble_set_mode_leds(false);
 }
 
 void matrix_power_up(void) {
@@ -125,26 +104,23 @@ void matrix_power_up(void) {
   memset(matrix_debouncing, 0, sizeof(matrix_debouncing));
 #endif
 
-  matrix_powered_on = true;
   matrix_last_modified = timer_read32();
 #ifdef DEBUG_MATRIX_SCAN_RATE
   scan_timer = timer_read32();
   scan_count = 0;
 #endif
+
+  iota_gfx_on();
+  ble_set_mode_leds(true);
 }
 
 void matrix_init(void) {
-#if FANCY_POWER_MGR
-  // Disable matrix interrupts
-  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-    EIMSK &= ~_BV(PCINT6); // this seems to break timers FIXME!
-    pinMode(PD3, PinDirectionInput);
-  }
-#endif
-
   i2c_init();
   iota_mcp23017_init();
   iota_gfx_init();
+
+  pinMode(D3, PinDirectionInput);
+  iota_mcp23017_enable_interrupts();
 
   matrix_power_up();
 }
@@ -174,8 +150,7 @@ static bool read_cols_on_row(matrix_row_t current_matrix[],
   return last_row_value != current_matrix[current_row];
 }
 
-uint8_t matrix_scan(void) {
-  iota_gfx_task();
+static uint8_t matrix_scan_raw(void) {
 
   if (!iota_mcp23017_make_ready()) {
     return 0;
@@ -220,17 +195,48 @@ uint8_t matrix_scan(void) {
   }
 #endif
 
-#if FANCY_POWER_MGR
-  // power management
-  if (matrix_powered_on && (USB_DeviceState == DEVICE_STATE_Suspended ||
-        USB_DeviceState == DEVICE_STATE_Unattached) &&
-#if BLE_ENABLE
-      !ble_is_connected() &&
-#endif
-      timer_elapsed32(matrix_last_modified) > MATRIX_POWER_SAVE) {
-    suspend_power_down();
+  return 1;
+}
+
+uint8_t matrix_scan(void) {
+  iota_gfx_task();
+
+  if (!matrix_scan_raw()) {
+    return 0;
   }
-#endif
+
+  // Try to manage battery power a little better than the default scan.
+  // If the user is idle for a while, turn off some things that draw
+  // power.
+
+  if (timer_elapsed32(matrix_last_modified) > MATRIX_POWER_SAVE) {
+    matrix_power_down();
+
+    // Turn on all the rows; we're going to read the columns in
+    // the loop below to see if we got woken up.
+    select_rows();
+
+    while (true) {
+      suspend_power_down();
+
+      // See if any keys have been pressed.
+      if (!iota_mcp23017_read()) {
+        continue;
+      }
+
+      // Wake us up
+      matrix_last_modified = timer_read32();
+      suspend_wakeup_init();
+      matrix_power_up();
+
+      // Wake the host up, if appropriate.
+      if (USB_DeviceState == DEVICE_STATE_Suspended &&
+          USB_Device_RemoteWakeupEnabled) {
+        USB_Device_SendRemoteWakeup();
+      }
+      break;
+    }
+  }
 
   matrix_scan_quantum();
   return 1;

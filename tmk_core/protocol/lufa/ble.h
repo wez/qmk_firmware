@@ -15,11 +15,6 @@ extern "C" {
 /* Instruct the module to enable HID keyboard support and reset */
 extern bool ble_enable_keyboard(void);
 
-/* Query the RSSI for the bluetooth connection.
- * Returns the value in dBm if connected, else 0.
- */
-extern int ble_get_rssi(void);
-
 /* Query to see if the BLE module is connected */
 extern bool ble_query_is_connected(void);
 
@@ -52,6 +47,9 @@ extern bool ble_send_mouse_move(int8_t x, int8_t y, int8_t scroll, int8_t pan);
 /* Compute battery voltage by reading an analog pin.
  * Returns the integer number of millivolts */
 extern uint32_t ble_read_battery_voltage(void);
+
+extern bool ble_set_mode_leds(bool on);
+extern bool ble_set_power_level(int8_t level);
 
 #ifdef __cplusplus
 }

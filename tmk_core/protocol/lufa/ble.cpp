@@ -121,7 +121,8 @@ enum ble_system_event_bits {
 
 static bool ble_at_command(const char *cmd, char *resp, uint16_t resplen,
                            bool verbose, uint16_t timeout = SdepTimeout);
-static bool ble_at_command_P(const char *cmd, char *resp, uint16_t resplen);
+static bool ble_at_command_P(const char *cmd, char *resp, uint16_t resplen,
+                             bool verbose = false);
 
 struct SPI_Settings {
   uint8_t spcr, spsr;
@@ -496,10 +497,10 @@ static bool ble_at_command(const char *cmd, char *resp, uint16_t resplen,
   return read_response(resp, resplen, verbose);
 }
 
-bool ble_at_command_P(const char *cmd, char *resp, uint16_t resplen) {
+bool ble_at_command_P(const char *cmd, char *resp, uint16_t resplen, bool verbose) {
   auto cmdbuf = (char *)alloca(strlen_P(cmd) + 1);
   strcpy_P(cmdbuf, cmd);
-  return ble_at_command(cmdbuf, resp, resplen, false);
+  return ble_at_command(cmdbuf, resp, resplen, verbose);
 }
 
 bool ble_is_connected(void) {
@@ -537,14 +538,14 @@ bool ble_enable_keyboard(void) {
   static const char kATZ[] PROGMEM = "ATZ";
 
   // Turn down the power level a bit
-//  static const char kPower[] PROGMEM = "AT+BLEPOWERLEVEL=-12";
+  static const char kPower[] PROGMEM = "AT+BLEPOWERLEVEL=-12";
   static PGM_P const configure_commands[] PROGMEM = {
     kEcho,
     kGapIntervals,
     kGapDevName,
     kHidEnOn,
+    kPower,
 //    kBleBatEn,
-    // kPower,
     kATZ,
   };
 
@@ -751,4 +752,32 @@ bool ble_send_mouse_move(int8_t x, int8_t y, int8_t scroll, int8_t pan) {
 // you're heading below 3.7V
 uint32_t ble_read_battery_voltage(void) {
   return state.vbat;
+}
+
+bool ble_set_mode_leds(bool on) {
+  if (!state.configured) {
+    return false;
+  }
+
+  // The "mode" led is the red blinky one
+  ble_at_command_P(on ? PSTR("AT+HWMODELED=1") : PSTR("AT+HWMODELED=0"), NULL,
+                   0);
+
+  // Pin 19 is the blue "connected" LED; turn that off too.
+  // When turning LEDs back on, don't turn that LED on if we're
+  // not connected, as that would be confusing.
+  ble_at_command_P(on && state.is_connected ? PSTR("AT+HWGPIO=19,1")
+                                            : PSTR("AT+HWGPIO=19,0"),
+                   NULL, 0);
+  return true;
+}
+
+// https://learn.adafruit.com/adafruit-feather-32u4-bluefruit-le/ble-generic#at-plus-blepowerlevel
+bool ble_set_power_level(int8_t level) {
+  char cmd[46];
+  if (!state.configured) {
+    return false;
+  }
+  snprintf(cmd, sizeof(cmd), "AT+BLEPOWERLEVEL=%d", level);
+  return ble_at_command(cmd, NULL, 0, false);
 }

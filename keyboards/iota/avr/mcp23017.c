@@ -63,8 +63,8 @@ bool iota_mcp23017_enable_interrupts(void) {
   set_reg(InterruptControlB, 0xff);
 
   // And enable interrupts
-  set_reg(InterruptOnChangeA, 0xff);
-  set_reg(InterruptOnChangeB, 0xfe); // Note: B0 is floating
+  set_reg(InterruptOnChangeA, 0xfe); // Note: A0 is floating
+  set_reg(InterruptOnChangeB, 0xff);
 
   success = true;
 done:

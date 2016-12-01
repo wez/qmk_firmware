@@ -746,7 +746,6 @@ static void send_system(uint16_t data)
 
 static void send_consumer(uint16_t data)
 {
-
 #ifdef BLUETOOTH_ENABLE
     static uint16_t last_data = 0;
     if (data == last_data) return;

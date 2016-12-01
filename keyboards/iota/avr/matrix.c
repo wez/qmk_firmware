@@ -22,7 +22,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "debug.h"
 #include "iota.h"
 #include "config.h"
-#include "i2cmaster.h"
+//#include "i2cmaster.h"
+#include "tmk_core/protocol/lufa/LUFA-git/LUFA/Drivers/Peripheral/TWI.h"
 #include "matrix.h"
 #include "print.h"
 #include "timer.h"
@@ -119,12 +120,12 @@ void matrix_power_up(void) {
 }
 
 void matrix_init(void) {
-  i2c_init();
+  TWI_Init(TWI_BIT_PRESCALE_1, TWI_BITLENGTH_FROM_FREQ(1, 400000));
   iota_mcp23017_init();
   iota_gfx_init();
 
-  pinMode(D3, PinDirectionInput);
-  iota_mcp23017_enable_interrupts();
+//  pinMode(D3, PinDirectionInput);
+//  iota_mcp23017_enable_interrupts();
 
   matrix_power_up();
 }

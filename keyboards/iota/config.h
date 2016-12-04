@@ -25,7 +25,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define PRODUCT_ID      0x6060
 #define DEVICE_VER      0x0001
 #define MANUFACTURER    Wez Furlong
+#define USBSTR_MANUFACTURER 'Q', 0, 'M', 0, 'K', 0
+
 #define PRODUCT         iota
+#define USBSTR_PRODUCT 'i', 0, 'o', 0, 't', 0, 'a', 0
 #define DESCRIPTION     A custom keyboard
 
 /* key matrix size */

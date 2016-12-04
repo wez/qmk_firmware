@@ -3,8 +3,10 @@
 
 #include "quantum.h"
 #include <stddef.h>
+#ifdef __AVR__
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#endif
 
 extern bool iota_gfx_init(void);
 extern void iota_gfx_task(void);

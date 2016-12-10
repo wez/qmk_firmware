@@ -11,13 +11,26 @@ enum layer_id {
   FUNC
 };
 
+#ifdef TAP_DANCE_ENABLE
 // Tap dance function ids
 enum tap_action_id {
   TD_SFT_CAPS,
 };
+#endif
 
 enum function_id {
   FN_MDIA_TOG,
+};
+
+enum iota_keycodes {
+  RGBLED_TOGGLE = SAFE_RANGE,
+  RGBLED_STEP_MODE,
+  RGBLED_INCREASE_HUE,
+  RGBLED_DECREASE_HUE,
+  RGBLED_INCREASE_SAT,
+  RGBLED_DECREASE_SAT,
+  RGBLED_INCREASE_VAL,
+  RGBLED_DECREASE_VAL,
 };
 
 #define ____ KC_TRNS
@@ -58,18 +71,20 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  */
 [MDIA] = {
   {____, KC_F1,  KC_F2,   KC_F3,   KC_F4, KC_F5, KC_F6, KC_F7, KC_F8,   KC_F9,   KC_F10,  KC_VOLD, KC_VOLU, ____, ____},
-  {____, ____,   ____,    ____,    ____,  ____,  ____,  ____,  ____,    ____,    ____,    ____,    ____,    ____, KC_F15},
-  {____, ____,   ____,    ____,    ____,  ____,  ____,  ____,  ____,    ____,    ____,    KC_MPLY, ____,    ____, KC_F14},
+  {RGBLED_TOGGLE, RGBLED_STEP_MODE,   RGBLED_INCREASE_HUE,    RGBLED_INCREASE_SAT,    RGBLED_INCREASE_VAL,  ____,  ____,  ____,  ____,    ____,    ____,    ____,    ____,    ____, KC_F15},
+  {____, ____,   RGBLED_DECREASE_HUE,    RGBLED_DECREASE_SAT,    RGBLED_DECREASE_VAL,  ____,  ____,  ____,  ____,    ____,    ____,    KC_MPLY, ____,    ____, KC_F14},
   {____, RESET,  ____,    ____,    ____,  ____,  ____,  ____,  ____,    KC_MPRV, KC_MNXT, ____,    ____,    KC_PGUP, ____},
   {____, ____,   ____,    ____,    ____,  ____,  ____,  ____,  ____,    ____,    ____,    ____,    KC_HOME, KC_PGDN, KC_END},
 },
 };
 
+#ifdef TAP_DANCE_ENABLE
 // Using TD(n) causes the firmware to lookup the tapping action here
 qk_tap_dance_action_t tap_dance_actions[] = {
   // Double tap shift to turn on caps lock
   [TD_SFT_CAPS] = ACTION_TAP_DANCE_DOUBLE(KC_LSFT, KC_CAPS),
 };
+#endif
 
 // Runs just one time when the keyboard initializes.
 void matrix_init_user(void) {
@@ -85,6 +100,56 @@ void matrix_init_user(void) {
 
 // Runs constantly in the background, in a loop.
 void matrix_scan_user(void) {
+}
+
+bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+  switch (keycode) {
+#ifdef RGBLIGHT_ENABLE
+    case RGBLED_TOGGLE:
+      if (record->event.pressed) {
+        rgblight_toggle();
+      }
+      return false;
+    case RGBLED_INCREASE_HUE:
+      if (record->event.pressed) {
+        rgblight_increase_hue();
+      }
+      return false;
+    case RGBLED_DECREASE_HUE:
+      if (record->event.pressed) {
+        rgblight_decrease_hue();
+      }
+      return false;
+    case RGBLED_INCREASE_SAT:
+      if (record->event.pressed) {
+        rgblight_increase_sat();
+      }
+      return false;
+    case RGBLED_DECREASE_SAT:
+      if (record->event.pressed) {
+        rgblight_decrease_sat();
+      }
+      return false;
+    case RGBLED_INCREASE_VAL:
+      if (record->event.pressed) {
+        rgblight_increase_val();
+      }
+      return false;
+    case RGBLED_DECREASE_VAL:
+      if (record->event.pressed) {
+        rgblight_decrease_val();
+      }
+      return false;
+    case RGBLED_STEP_MODE:
+      if (record->event.pressed) {
+        rgblight_step();
+      }
+      return false;
+#endif
+
+    default:
+      return true;
+  }
 }
 
 // Using F(n) causes the firmware to lookup what to do from this table

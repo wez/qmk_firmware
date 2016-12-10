@@ -27,7 +27,7 @@
 #endif
 
 
-#define SAMPLE_BATTERY
+#undef SAMPLE_BATTERY
 #define ConnectionUpdateInterval 1000 /* milliseconds */
 
 static struct {
@@ -358,21 +358,23 @@ static void send_buf_send_one(uint16_t timeout = SdepTimeout) {
   if (process_queue_item(&item, timeout)) {
     // commit that peek
     send_buf.get(item);
-    dprintf("send_buf_send_one: have %d remaining\n", (int)send_buf.size());
+//    dprintf("send_buf_send_one: have %d remaining\n", (int)send_buf.size());
   } else {
-    dprint("failed to send, will retry\n");
+//    dprint("failed to send, will retry\n");
     _delay_ms(SdepTimeout);
     resp_buf_read_one(true);
   }
 }
 
 static void resp_buf_wait(const char *cmd) {
-  bool didPrint = false;
+//  bool didPrint = false;
   while (!resp_buf.empty()) {
+#if 0
     if (!didPrint) {
       dprintf("wait on buf for %s\n", cmd);
       didPrint = true;
     }
+#endif
     resp_buf_read_one(true);
   }
 }
@@ -581,11 +583,13 @@ fail:
 
 static void set_connected(bool connected) {
   if (connected != state.is_connected) {
+#if 0
     if (connected) {
       print("****** BLE CONNECT!!!!\n");
     } else {
       print("****** BLE DISCONNECT!!!!\n");
     }
+#endif
     state.is_connected = connected;
 
     // TODO: if modifiers are down on the USB interface and
@@ -673,7 +677,7 @@ static bool process_queue_item(struct queue_item *item, uint16_t timeout) {
   // Arrange to re-check connection after keys have settled
   state.last_connection_update = timer_read();
 
-#if 1
+#if 0
   if (TIMER_DIFF_16(state.last_connection_update, item->added) > 0) {
     dprintf("send latency %dms\n",
             TIMER_DIFF_16(state.last_connection_update, item->added));
@@ -774,7 +778,11 @@ bool adafruit_ble_send_mouse_move(int8_t x, int8_t y, int8_t scroll,
 #endif
 
 uint32_t adafruit_ble_read_battery_voltage(void) {
+#ifdef SAMPLE_BATTERY
   return state.vbat;
+#else
+  return 0;
+#endif
 }
 
 bool adafruit_ble_set_mode_leds(bool on) {

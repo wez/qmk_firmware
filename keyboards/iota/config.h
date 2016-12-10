@@ -32,6 +32,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define MATRIX_ROWS 5
 #define MATRIX_COLS 15
 
+#define RGB_DI_PIN C7 // Pin 13 on the Feather board
+#define RGBLED_NUM 8
+#undef RGBLIGHT_ANIMATIONS
+
 // #define BACKLIGHT_PIN B7
 // #define BACKLIGHT_BREATHING
 // #define BACKLIGHT_LEVELS 3

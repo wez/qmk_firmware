@@ -26,8 +26,6 @@
 #define AdafruitBleIRQPin   E6
 #endif
 
-
-#undef SAMPLE_BATTERY
 #define ConnectionUpdateInterval 1000 /* milliseconds */
 
 static struct {
@@ -39,10 +37,6 @@ static struct {
 #define UsingEvents 2
   bool event_flags;
 
-#ifdef SAMPLE_BATTERY
-  uint16_t last_battery_update;
-  uint32_t vbat;
-#endif
   uint16_t last_connection_update;
 } state;
 
@@ -654,20 +648,6 @@ void adafruit_ble_task(void) {
       set_connected(atoi(resbuf));
     }
   }
-
-#ifdef SAMPLE_BATTERY
-  // I don't know if this really does anything useful yet; the reported
-  // voltage level always seems to be around 3200mV.  We may want to just rip
-  // this code out.
-  if (timer_elapsed(state.last_battery_update) > BatteryUpdateInterval &&
-      resp_buf.empty()) {
-    state.last_battery_update = timer_read();
-
-    if (at_command_P(PSTR("AT+HWVBAT"), resbuf, sizeof(resbuf))) {
-      state.vbat = atoi(resbuf);
-    }
-  }
-#endif
 }
 
 static bool process_queue_item(struct queue_item *item, uint16_t timeout) {
@@ -776,14 +756,6 @@ bool adafruit_ble_send_mouse_move(int8_t x, int8_t y, int8_t scroll,
   return true;
 }
 #endif
-
-uint32_t adafruit_ble_read_battery_voltage(void) {
-#ifdef SAMPLE_BATTERY
-  return state.vbat;
-#else
-  return 0;
-#endif
-}
 
 bool adafruit_ble_set_mode_leds(bool on) {
   if (!state.configured) {

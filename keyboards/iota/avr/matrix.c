@@ -22,7 +22,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "debug.h"
 #include "iota.h"
 #include "config.h"
-//#include "i2cmaster.h"
 #include "tmk_core/protocol/lufa/LUFA-git/LUFA/Drivers/Peripheral/TWI.h"
 #include "matrix.h"
 #include "print.h"

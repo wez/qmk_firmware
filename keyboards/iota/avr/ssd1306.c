@@ -33,12 +33,21 @@
 #define MatrixRows (DisplayHeight / FontHeight)
 #define MatrixCols (DisplayWidth / FontWidth)
 
-static uint8_t display[MatrixRows][MatrixCols];
-static uint8_t *cursor;
-static bool dirty;
+struct CharacterMatrix {
+  uint8_t display[MatrixRows][MatrixCols];
+  uint8_t *cursor;
+  bool dirty;
+};
+
+static struct CharacterMatrix display;
+static uint16_t last_battery_update;
+static uint32_t vbat;
+#define BatteryUpdateInterval 10000 /* milliseconds */
+#define ScreenOffInterval 10000
 #if DEBUG_TO_SCREEN
 static uint8_t displaying;
 #endif
+static uint16_t last_flush;
 
 enum ssd1306_cmds {
   DisplayOff = 0xae,
@@ -131,9 +140,10 @@ static inline bool _send_cmd3(uint8_t cmd, uint8_t opr1, uint8_t opr2) {
 #define send_cmd2(c,o) if (!_send_cmd2(c,o)) {goto done;}
 #define send_cmd3(c,o1,o2) if (!_send_cmd3(c,o1,o2)) {goto done;}
 
+static void matrix_clear(struct CharacterMatrix *matrix);
+
 static void clear_display(void) {
-  memset(display, ' ', sizeof(display));
-  cursor = &display[0][0];
+  matrix_clear(&display);
 
   // Clear all of the display bits (there can be random noise
   // in the RAM on startup)
@@ -153,7 +163,7 @@ static void clear_display(void) {
     }
   }
 
-  dirty = false;
+  display.dirty = false;
 
 done:
   i2c_stop();
@@ -232,62 +242,80 @@ done:
   return success;
 }
 
+static void matrix_write_char_inner(struct CharacterMatrix *matrix, uint8_t c) {
+  *matrix->cursor = c;
+  ++matrix->cursor;
 
-static inline void write_char(uint8_t c) {
-  *cursor = c;
-  ++cursor;
-
-  if (cursor - &display[0][0] == sizeof(display)) {
+  if (matrix->cursor - &matrix->display[0][0] == sizeof(matrix->display)) {
     // We went off the end; scroll the display upwards by one line
-    memmove(&display[0], &display[1], MatrixCols * (MatrixRows - 1));
-    cursor = &display[MatrixRows - 1][0];
-    memset(cursor, ' ', MatrixCols);
+    memmove(&matrix->display[0], &matrix->display[1],
+            MatrixCols * (MatrixRows - 1));
+    matrix->cursor = &matrix->display[MatrixRows - 1][0];
+    memset(matrix->cursor, ' ', MatrixCols);
   }
 }
 
-void iota_gfx_write_char(uint8_t c) {
-  dirty = true;
+static void matrix_write_char(struct CharacterMatrix *matrix, uint8_t c) {
+  matrix->dirty = true;
 
   if (c == '\n') {
     // Clear to end of line from the cursor and then move to the
     // start of the next line
-    uint8_t cursor_col = (cursor - &display[0][0]) % MatrixCols;
+    uint8_t cursor_col = (matrix->cursor - &matrix->display[0][0]) % MatrixCols;
 
     while (cursor_col++ < MatrixCols) {
-      write_char(' ');
+      matrix_write_char_inner(matrix, ' ');
     }
     return;
   }
 
-  write_char(c);
+  matrix_write_char_inner(matrix, c);
 }
 
-void iota_gfx_write(const char *data) {
+void iota_gfx_write_char(uint8_t c) {
+  matrix_write_char(&display, c);
+}
+
+static void matrix_write(struct CharacterMatrix *matrix, const char *data) {
   const char *end = data + strlen(data);
   while (data < end) {
-    iota_gfx_write_char(*data);
+    matrix_write_char(matrix, *data);
     ++data;
   }
 }
 
-void iota_gfx_write_P(const char *data) {
+void iota_gfx_write(const char *data) {
+  matrix_write(&display, data);
+}
+
+static void matrix_write_P(struct CharacterMatrix *matrix, const char *data) {
   while (true) {
     uint8_t c = pgm_read_byte(data);
     if (c == 0) {
       return;
     }
-    iota_gfx_write_char(c);
+    matrix_write_char(matrix, c);
     ++data;
   }
 }
 
-void iota_gfx_clear_screen(void) {
-  memset(&display[0][0], ' ', sizeof(display));
-  cursor = &display[0][0];
-  dirty = true;
+void iota_gfx_write_P(const char *data) {
+  matrix_write_P(&display, data);
 }
 
-void iota_gfx_flush(void) {
+static void matrix_clear(struct CharacterMatrix *matrix) {
+  memset(matrix->display, ' ', sizeof(matrix->display));
+  matrix->cursor = &matrix->display[0][0];
+  matrix->dirty = true;
+}
+
+void iota_gfx_clear_screen(void) {
+  matrix_clear(&display);
+}
+
+static void matrix_render(struct CharacterMatrix *matrix) {
+  last_flush = timer_read();
+  iota_gfx_on();
 #if DEBUG_TO_SCREEN
   ++displaying;
 #endif
@@ -306,7 +334,7 @@ void iota_gfx_flush(void) {
 
   for (uint8_t row = 0; row < MatrixRows; ++row) {
     for (uint8_t col = 0; col < MatrixCols; ++col) {
-      const uint8_t *glyph = font + (display[row][col] * (FontWidth - 1));
+      const uint8_t *glyph = font + (matrix->display[row][col] * (FontWidth - 1));
 
       for (uint8_t glyphCol = 0; glyphCol < FontWidth - 1; ++glyphCol) {
         uint8_t colBits = pgm_read_byte(glyph + glyphCol);
@@ -318,13 +346,40 @@ void iota_gfx_flush(void) {
     }
   }
 
-  dirty = false;
+  matrix->dirty = false;
 
 done:
   i2c_stop();
 #if DEBUG_TO_SCREEN
   --displaying;
 #endif
+}
+
+void iota_gfx_flush(void) {
+  matrix_render(&display);
+}
+
+#include "LUFA/Drivers/Peripheral/ADC.h"
+
+/* Returns the battery voltage; returns the number of millivolts */
+static uint32_t read_battery_voltage(void) {
+  if (last_battery_update == 0 ||
+      timer_elapsed(last_battery_update) > BatteryUpdateInterval) {
+    ADC_Init(ADC_SINGLE_CONVERSION | ADC_PRESCALE_32);
+    ADC_SetupChannel(12);
+    vbat = 2 * 3.3 * ADC_GetChannelReading(ADC_REFERENCE_AVCC | ADC_CHANNEL12);
+
+    last_battery_update = timer_read();
+  }
+  return vbat;
+}
+
+static void matrix_update(struct CharacterMatrix *dest,
+                          const struct CharacterMatrix *source) {
+  if (memcmp(dest->display, source->display, sizeof(dest->display))) {
+    memcpy(dest->display, source->display, sizeof(dest->display));
+    dest->dirty = true;
+  }
 }
 
 static void render_status_info(void) {
@@ -334,55 +389,57 @@ static void render_status_info(void) {
   }
 #endif
 
-  iota_gfx_clear_screen();
-  iota_gfx_write_P(PSTR("USB: "));
+  struct CharacterMatrix matrix;
+
+  matrix_clear(&matrix);
+  matrix_write_P(&matrix, PSTR("USB: "));
 #ifdef PROTOCOL_LUFA
   switch (USB_DeviceState) {
     case DEVICE_STATE_Unattached:
-      iota_gfx_write_P(PSTR("Unattached"));
+      matrix_write_P(&matrix, PSTR("Unattached"));
       break;
     case DEVICE_STATE_Suspended:
-      iota_gfx_write_P(PSTR("Suspended"));
+      matrix_write_P(&matrix, PSTR("Suspended"));
       break;
     case DEVICE_STATE_Configured:
-      iota_gfx_write_P(PSTR("Configured"));
+      matrix_write_P(&matrix, PSTR("Configured"));
       break;
     case DEVICE_STATE_Powered:
-      iota_gfx_write_P(PSTR("Powered"));
+      matrix_write_P(&matrix, PSTR("Powered"));
       break;
     case DEVICE_STATE_Default:
-      iota_gfx_write_P(PSTR("Default"));
+      matrix_write_P(&matrix, PSTR("Default"));
       break;
     case DEVICE_STATE_Addressed:
-      iota_gfx_write_P(PSTR("Addressed"));
+      matrix_write_P(&matrix, PSTR("Addressed"));
       break;
     default:
-      iota_gfx_write_P(PSTR("Invalid"));
+      matrix_write_P(&matrix, PSTR("Invalid"));
   }
 #endif
-  iota_gfx_write_P(PSTR("\nBLE: "));
+  matrix_write_P(&matrix, PSTR("\nBLE: "));
 #ifdef ADAFRUIT_BLE_ENABLE
-  iota_gfx_write_P(adafruit_ble_is_connected() ? PSTR("Connected")
+  matrix_write_P(&matrix, adafruit_ble_is_connected() ? PSTR("Connected")
       : PSTR("Not Connected"));
 #endif
-  iota_gfx_write_P(PSTR("\n"));
+  matrix_write_P(&matrix, PSTR("\n"));
 
   char buf[40];
-  snprintf(buf, sizeof(buf), "Mod 0x%02x VBat: %4lumVLayer: 0x%04lx",
-      get_mods(),
-#ifdef ADAFRUIT_BLE_ENABLE
-      adafruit_ble_read_battery_voltage(),
-#else
-      0LU,
-#endif
-      layer_state);
-  iota_gfx_write(buf);
+  snprintf(buf, sizeof(buf), "VBat: %4lumV\nLayer: 0x%04lx  %s",
+           read_battery_voltage(), layer_state,
+           (host_keyboard_leds() & USB_LED_CAPS_LOCK) ? "CAPS" : "");
+  matrix_write(&matrix, buf);
+  matrix_update(&display, &matrix);
 }
 
 void iota_gfx_task(void) {
   render_status_info();
 
-  if (dirty) {
+  if (display.dirty) {
     iota_gfx_flush();
+  }
+
+  if (timer_elapsed(last_flush) > ScreenOffInterval) {
+    iota_gfx_off();
   }
 }

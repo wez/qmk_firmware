@@ -46,10 +46,6 @@ extern bool adafruit_ble_send_mouse_move(int8_t x, int8_t y, int8_t scroll,
                                          int8_t pan);
 #endif
 
-/* Compute battery voltage by reading an analog pin.
- * Returns the integer number of millivolts */
-extern uint32_t adafruit_ble_read_battery_voltage(void);
-
 extern bool adafruit_ble_set_mode_leds(bool on);
 extern bool adafruit_ble_set_power_level(int8_t level);
 

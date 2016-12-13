@@ -28,6 +28,12 @@
 
 #define ConnectionUpdateInterval 1000 /* milliseconds */
 
+// Default to leaving the mode LEDs on; define this to 0
+// in your config.h to turn them off
+#ifndef ADAFRUIT_BLE_ENABLE_MODE_LEDS
+#define ADAFRUIT_BLE_ENABLE_MODE_LEDS 1
+#endif
+
 static struct {
   bool is_connected;
   bool initialized;
@@ -544,13 +550,21 @@ bool adafruit_ble_enable_keyboard(void) {
   static const char kATZ[] PROGMEM = "ATZ";
 
   // Turn down the power level a bit
-  static const char kPower[] PROGMEM = "AT+BLEPOWERLEVEL=-12";
+  static const char kPower[] PROGMEM = "AT+BLEPOWERLEVEL=-20";
+
+#if !ADAFRUIT_BLE_ENABLE_MODE_LEDS
+  static const char kRedLEDOff[] PROGMEM = "AT+HWMODELED=0";
+#endif
+
   static PGM_P const configure_commands[] PROGMEM = {
     kEcho,
     kGapIntervals,
     kGapDevName,
     kHidEnOn,
     kPower,
+#if !ADAFRUIT_BLE_ENABLE_MODE_LEDS
+    kRedLEDOff,
+#endif
     kATZ,
   };
 
@@ -594,6 +608,9 @@ static void set_connected(bool connected) {
     // for macOS to to start recognizing key presses after BLE
     // is in the connected state, so I worry that doing that
     // here may not be good enough.
+#if !ADAFRUIT_BLE_ENABLE_MODE_LEDS
+    adafruit_ble_set_mode_leds(false);
+#endif
   }
 }
 

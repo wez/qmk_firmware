@@ -31,6 +31,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define USBSTR_PRODUCT 'i', 0, 'o', 0, 't', 0, 'a', 0
 #define DESCRIPTION     A custom keyboard
 
+// Turn off the mode leds on the BLE module
+#define ADAFRUIT_BLE_ENABLE_MODE_LEDS 0
+
 /* key matrix size */
 #define MATRIX_ROWS 5
 #define MATRIX_COLS 15

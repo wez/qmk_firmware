@@ -60,6 +60,8 @@ static matrix_row_t matrix[MATRIX_ROWS];
 #define MATRIX_POWER_SAVE       600000 // 10 minutes
 static uint32_t matrix_last_modified;
 
+#define ENABLE_BLE_MODE_LEDS 0
+
 #ifdef DEBUG_MATRIX_SCAN_RATE
 static uint32_t scan_timer;
 static uint32_t scan_count;
@@ -93,7 +95,7 @@ static void select_rows(void) {
 
 void matrix_power_down(void) {
   iota_gfx_off();
-#ifdef ADAFRUIT_BLE_ENABLE
+#if defined(ADAFRUIT_BLE_ENABLE) && ADAFRUIT_BLE_ENABLE_MODE_LEDS
   adafruit_ble_set_mode_leds(false);
 #endif
 }
@@ -113,7 +115,7 @@ void matrix_power_up(void) {
 #endif
 
   iota_gfx_on();
-#ifdef ADAFRUIT_BLE_ENABLE
+#if defined(ADAFRUIT_BLE_ENABLE) && ADAFRUIT_BLE_ENABLE_MODE_LEDS
   adafruit_ble_set_mode_leds(true);
 #endif
 }

@@ -1,5 +1,6 @@
 #include "matrix.h"
 #include "print.h"
+#include "spi.hpp"
 
 #if DEBOUNCING_DELAY > 0
 static bool debouncing;

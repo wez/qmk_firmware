@@ -8,7 +8,7 @@ OPT_DEFS += -DINTERRUPT_CONTROL_ENDPOINT
 OPT_DEFS += -DBOOTLOADER_SIZE=4096 -DCATERINA_BOOTLOADER
 
 CUSTOM_MATRIX = yes          # We have a custom matrix
-SRC += fission-matrix.cpp
+SRC += fission-matrix.cpp rfm69.cpp
 
 # Build Options
 #   change yes to no to disable

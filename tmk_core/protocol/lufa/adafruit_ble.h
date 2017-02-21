@@ -12,6 +12,12 @@
 extern "C" {
 #endif
 
+#ifdef AdafruitBlePowerPin
+/* Power on or off the BLE device */
+extern bool adafruit_ble_power_enable(bool enable);
+extern bool adafruit_ble_power_is_enabled(void);
+#endif
+
 /* Instruct the module to enable HID keyboard support and reset */
 extern bool adafruit_ble_enable_keyboard(void);
 
@@ -48,6 +54,8 @@ extern bool adafruit_ble_send_mouse_move(int8_t x, int8_t y, int8_t scroll,
 
 extern bool adafruit_ble_set_mode_leds(bool on);
 extern bool adafruit_ble_set_power_level(int8_t level);
+
+extern bool adafruit_ble_set_battery_pct(uint8_t pct);
 
 #ifdef __cplusplus
 }

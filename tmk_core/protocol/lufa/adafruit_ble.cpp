@@ -130,7 +130,6 @@ enum ble_system_event_bits {
 #define SdepTimeout 150 /* milliseconds */
 #define SdepShortTimeout 10 /* milliseconds */
 #define SdepBackOff 25 /* microseconds */
-#define BatteryUpdateInterval 10000 /* milliseconds */
 
 static bool at_command(const char *cmd, char *resp, uint16_t resplen,
                        bool verbose, uint16_t timeout = SdepTimeout);
@@ -222,12 +221,13 @@ static void dump_pkt(const struct sdep_msg *msg) {
 
 // Send a single SDEP packet
 static bool sdep_send_pkt(const struct sdep_msg *msg, uint16_t timeout) {
+
   SPI_begin(&spi);
 
   digitalWrite(AdafruitBleCSPin, PinLevelLow);
   uint16_t timerStart = timer_read();
-  bool success = false;
   bool ready = false;
+  bool success = false;
 
   do {
     ready = SPI_TransferByte(msg->type) != SdepSlaveNotReady;
@@ -309,6 +309,11 @@ static bool sdep_recv_pkt(struct sdep_msg *msg, uint16_t timeout) {
     } while (timer_elapsed(timerStart) < timeout);
 
     digitalWrite(AdafruitBleCSPin, PinLevelHigh);
+    if (!success) {
+      dprintf("we are reading too fast? (type byte: %d)\n", msg->type);
+    }
+  } else {
+    dprintf("irq pin wasn't ready in time\n");
   }
   return success;
 }
@@ -379,6 +384,23 @@ static void resp_buf_wait(const char *cmd) {
   }
 }
 
+#ifdef AdafruitBlePowerPin
+bool adafruit_ble_power_enable(bool enable) {
+  pinMode(AdafruitBlePowerPin, PinDirectionOutput);
+  digitalWrite(AdafruitBlePowerPin, enable ? PinLevelHigh : PinLevelLow);
+
+  if (!enable) {
+    state.initialized = false;
+    state.configured = false;
+    state.is_connected = false;
+  }
+}
+
+bool adafruit_ble_power_is_enabled(void) {
+  return digitalRead(AdafruitBlePowerPin);
+}
+#endif
+
 static bool ble_init(void) {
   state.initialized = false;
   state.configured = false;
@@ -390,12 +412,27 @@ static bool ble_init(void) {
 
   SPI_init(&spi);
 
+#ifdef AdafruitBlePowerPin
+  if (!adafruit_ble_power_is_enabled()) {
+    return false;
+  }
+#endif
+
+#if AdafruitBleResetPin != -1
   // Perform a hardware reset
   pinMode(AdafruitBleResetPin, PinDirectionOutput);
   digitalWrite(AdafruitBleResetPin, PinLevelHigh);
   digitalWrite(AdafruitBleResetPin, PinLevelLow);
   _delay_ms(10);
   digitalWrite(AdafruitBleResetPin, PinLevelHigh);
+#else
+  // Software reset
+  struct sdep_msg msg;
+  sdep_build_pkt(&msg, BleInitialize, nullptr, 0, true);
+  if (!sdep_send_pkt(&msg, 1000)) {
+    return false;
+  }
+#endif
 
   _delay_ms(1000); // Give it a second to initialize
 
@@ -410,7 +447,6 @@ static inline uint8_t min(uint8_t a, uint8_t b) {
 static bool read_response(char *resp, uint16_t resplen, bool verbose) {
   char *dest = resp;
   char *end = dest + resplen;
-
   while (true) {
     struct sdep_msg msg;
 
@@ -581,6 +617,10 @@ bool adafruit_ble_enable_keyboard(void) {
   }
 
   state.configured = true;
+  // Allow time for the BLE module to reset and become ready before we
+  // return, otherwise we may hang if we try to send additional SPI
+  // commands before it has finished the reset.
+  _delay_ms(1000);
 
   // Check connection status in a little while; allow the ATZ time
   // to kick in.
@@ -593,9 +633,9 @@ static void set_connected(bool connected) {
   if (connected != state.is_connected) {
 #if 0
     if (connected) {
-      print("****** BLE CONNECT!!!!\n");
+      dprint("****** BLE CONNECT!!!!\n");
     } else {
-      print("****** BLE DISCONNECT!!!!\n");
+      dprint("****** BLE DISCONNECT!!!!\n");
     }
 #endif
     state.is_connected = connected;
@@ -649,8 +689,10 @@ void adafruit_ble_task(void) {
       if (at_command_P(PSTR("AT+EVENTENABLE=0x1"), resbuf, sizeof(resbuf))) {
         at_command_P(PSTR("AT+EVENTENABLE=0x2"), resbuf, sizeof(resbuf));
         state.event_flags |= UsingEvents;
+        dprintf("UsingEvents!\n");
+      } else {
+        state.event_flags |= ProbedEvents;
       }
-      state.event_flags |= ProbedEvents;
 
       // leave shouldPoll == true so that we check at least once
       // before relying solely on events
@@ -658,11 +700,13 @@ void adafruit_ble_task(void) {
       shouldPoll = false;
     }
 
-    static const char kGetConn[] PROGMEM = "AT+GAPGETCONN";
-    state.last_connection_update = timer_read();
+    if (shouldPoll || state.event_flags & ProbedEvents) {
+      static const char kGetConn[] PROGMEM = "AT+GAPGETCONN";
+      state.last_connection_update = timer_read();
 
-    if (at_command_P(kGetConn, resbuf, sizeof(resbuf))) {
-      set_connected(atoi(resbuf));
+      if (at_command_P(kGetConn, resbuf, sizeof(resbuf))) {
+        set_connected(atoi(resbuf));
+      }
     }
   }
 }
@@ -712,6 +756,10 @@ bool adafruit_ble_send_keys(uint8_t hid_modifier_mask, uint8_t *keys,
   struct queue_item item;
   bool didWait = false;
 
+  if (!state.configured) {
+    return false;
+  }
+
   item.queue_type = QTKeyReport;
   item.key.modifier = hid_modifier_mask;
   item.added = timer_read();
@@ -747,6 +795,10 @@ bool adafruit_ble_send_keys(uint8_t hid_modifier_mask, uint8_t *keys,
 bool adafruit_ble_send_consumer_key(uint16_t keycode, int hold_duration) {
   struct queue_item item;
 
+  if (!state.configured) {
+    return false;
+  }
+
   item.queue_type = QTConsumer;
   item.consumer = keycode;
 
@@ -760,6 +812,10 @@ bool adafruit_ble_send_consumer_key(uint16_t keycode, int hold_duration) {
 bool adafruit_ble_send_mouse_move(int8_t x, int8_t y, int8_t scroll,
                                   int8_t pan) {
   struct queue_item item;
+
+  if (!state.configured) {
+    return false;
+  }
 
   item.queue_type = QTMouseMove;
   item.mousemove.x = x;

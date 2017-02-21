@@ -105,7 +105,7 @@ void mousekey_task(void)
     if (mousekey_repeat != UINT8_MAX)
         mousekey_repeat++;
 
-
+#ifndef MOUSEKEY_ANALOG_XY
     if (mouse_report.x > 0) mouse_report.x = move_unit();
     if (mouse_report.x < 0) mouse_report.x = move_unit() * -1;
     if (mouse_report.y > 0) mouse_report.y = move_unit();
@@ -116,6 +116,7 @@ void mousekey_task(void)
         mouse_report.x *= 0.7;
         mouse_report.y *= 0.7;
     }
+#endif
 
     if (mouse_report.v > 0) mouse_report.v = wheel_unit();
     if (mouse_report.v < 0) mouse_report.v = wheel_unit() * -1;
@@ -124,6 +125,16 @@ void mousekey_task(void)
 
     mousekey_send();
 }
+
+#ifdef MOUSEKEY_ANALOG_XY
+void mousekey_set_x(int8_t x) {
+  mouse_report.x = x;
+}
+
+void mousekey_set_y(int8_t y) {
+  mouse_report.y = y;
+}
+#endif
 
 void mousekey_on(uint8_t code)
 {

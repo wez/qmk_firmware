@@ -1,4 +1,4 @@
-SUBPROJECT_DEFAULT = rev4
+SUBPROJECT_DEFAULT = rev3
 
 ifndef MAKEFILE_INCLUDED
 	include ../../Makefile

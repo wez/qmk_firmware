@@ -544,13 +544,13 @@ bool adafruit_ble_enable_keyboard(void) {
   // set a smaller value than 10ms, and 30ms seems to be the natural
   // processing time on my macbook.  Keeping it constrained to that
   // feels reasonable to type to.
-  static const char kGapIntervals[] PROGMEM = "AT+GAPINTERVALS=10,30,,";
+  static const char kGapIntervals[] PROGMEM = "AT+GAPINTERVALS=10,20,,";
 
   // Reset the device so that it picks up the above changes
   static const char kATZ[] PROGMEM = "ATZ";
 
   // Turn down the power level a bit
-  static const char kPower[] PROGMEM = "AT+BLEPOWERLEVEL=-20";
+  static const char kPower[] PROGMEM = "AT+BLEPOWERLEVEL=0";
 
 #if !ADAFRUIT_BLE_ENABLE_MODE_LEDS
   static const char kRedLEDOff[] PROGMEM = "AT+HWMODELED=0";

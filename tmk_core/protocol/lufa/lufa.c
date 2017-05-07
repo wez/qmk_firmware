@@ -662,7 +662,7 @@ static void send_keyboard(report_keyboard_t *report)
 
     keyboard_report_sent = *report;
 }
- 
+
 /** \brief Send Mouse
  *
  * FIXME: Needs doc
@@ -1104,4 +1104,3 @@ uint16_t CALLBACK_USB_GetDescriptor(const uint16_t wValue,
 {
   return get_usb_descriptor(wValue, wIndex, DescriptorAddress);
 }
-

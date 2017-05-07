@@ -33,6 +33,9 @@
 #ifndef ADAFRUIT_BLE_ENABLE_MODE_LEDS
 #define ADAFRUIT_BLE_ENABLE_MODE_LEDS 1
 #endif
+#ifndef ADAFRUIT_BLE_ENABLE_POWER_LED
+#define ADAFRUIT_BLE_ENABLE_POWER_LED 1
+#endif
 
 static struct {
   bool is_connected;
@@ -587,7 +590,7 @@ bool adafruit_ble_enable_keyboard(void) {
   static const char kATZ[] PROGMEM = "ATZ";
 
   // Turn down the power level a bit
-  static const char kPower[] PROGMEM = "AT+BLEPOWERLEVEL=-20";
+  static const char kPower[] PROGMEM = "AT+BLEPOWERLEVEL=-40";
 
 #if !ADAFRUIT_BLE_ENABLE_MODE_LEDS
   static const char kRedLEDOff[] PROGMEM = "AT+HWMODELED=0";
@@ -856,12 +859,15 @@ bool adafruit_ble_set_mode_leds(bool on) {
   // The "mode" led is the red blinky one
   at_command_P(on ? PSTR("AT+HWMODELED=1") : PSTR("AT+HWMODELED=0"), NULL, 0);
 
+#if !ADAFRUIT_BLE_ENABLE_POWER_LED
   // Pin 19 is the blue "connected" LED; turn that off too.
   // When turning LEDs back on, don't turn that LED on if we're
   // not connected, as that would be confusing.
   at_command_P(on && state.is_connected ? PSTR("AT+HWGPIO=19,1")
                                         : PSTR("AT+HWGPIO=19,0"),
                NULL, 0);
+#endif
+
   return true;
 }
 

@@ -33,7 +33,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define MATRIX_COLS 16
 #define DIODE_DIRECTION CUSTOM_MATRIX
 
-#define MOUSEKEY_ANALOG_XY 1
+#define MOUSEKEY_ANALOG_XYVH 1
+#define MOUSEKEY_MAX_SPEED 15
+#define MOUSEKEY_WHEEL_MAX_SPEED 1
 
 // We have an Adafruit BLE SPI Friend board attached
 #define AdafruitBleResetPin -1
@@ -43,6 +45,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 // Turn off the mode leds on the BLE module
 #define ADAFRUIT_BLE_ENABLE_MODE_LEDS 0
+#define ADAFRUIT_BLE_ENABLE_POWER_LED 0
 
 /* Debounce reduces chatter (unintended double-presses) - set 0 if debouncing is not needed */
 #define DEBOUNCING_DELAY 5

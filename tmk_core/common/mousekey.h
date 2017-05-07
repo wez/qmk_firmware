@@ -69,9 +69,8 @@ void mousekey_on(uint8_t code);
 void mousekey_off(uint8_t code);
 void mousekey_clear(void);
 void mousekey_send(void);
-#ifdef MOUSEKEY_ANALOG_XY
-void mousekey_set_x(int8_t x);
-void mousekey_set_y(int8_t y);
+#ifdef MOUSEKEY_ANALOG_XYVH
+void mousekey_set_xyvh(int8_t x, int8_t y, int8_t v, int8_t h);
 #endif
 
 #ifdef __cplusplus

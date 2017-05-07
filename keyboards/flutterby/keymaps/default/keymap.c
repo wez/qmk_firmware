@@ -23,19 +23,21 @@ enum macro_id {
 enum function_id {
   FNCOPYCUT,
   FNOSTOGGLE,
+  FNTHUMBSTICKMODE,
 };
 
 static bool is_mac = true;
 
 #define ____ KC_TRNS
+#define CTL(k)  ACTION_MODS_KEY(MOD_LCTL, k)
 
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 [BASE] = KEYMAP(
-                 KC_1, KC_2, KC_3, KC_4, KC_5,      F(FNCOPYCUT),
-  KC_TAB,        KC_Q, KC_W, KC_E, KC_R, KC_T,      KC_LBRC,
-  CTL_T(KC_ESC), KC_A, KC_S, KC_D, KC_F, KC_G,      KC_MINS,
-  KC_LSFT,       KC_Z, KC_X, KC_C, KC_V, KC_B,
-                                                    KC_LGUI,
+           KC_1, KC_2, KC_3, KC_4, KC_5, F(FNCOPYCUT),
+  KC_TAB,   KC_Q, KC_W, KC_E, KC_R, KC_T, KC_LBRC,
+  CTL_T(KC_ESC),  KC_A, KC_S, KC_D, KC_F, KC_G, KC_MINS,
+  KC_LSFT, KC_Z, KC_X, KC_C, KC_V, KC_B,
+                                                    KC_LSFT,
                                          MO(LOWER), ALL_T(KC_NO),
                                          KC_BSPC,   KC_DEL,
 
@@ -49,26 +51,26 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 ),
 
 [RAISE] = KEYMAP(
-          KC_F1,   KC_F2, KC_F3,   KC_F4, KC_F5, ____,
-  ____,   ____,    ____,  KC_END,  ____,  ____,  ____,
-  ____,   KC_HOME, ____,  KC_PGDN, ____,  ____,  KC_VOLD,
-  KC_GRV, ____,    ____,  ____,    ____,  ____,
+          KC_F1,     KC_F2,     KC_F3,     KC_F4,     KC_F5,     ____,
+  ____,   CTL(KC_Q), CTL(KC_W), CTL(KC_E), CTL(KC_R), CTL(KC_T), ____,
+  ____,   CTL(KC_A), CTL(KC_S), CTL(KC_D), CTL(KC_F), CTL(KC_G), KC_VOLD,
+  ____,   CTL(KC_Z), CTL(KC_X), CTL(KC_C), CTL(KC_V), CTL(KC_B),
                                                  ____,
                                           ____,  ____,
                                           ____,  ____,
 
   ____,    KC_F6,   KC_F7,   KC_F8,   KC_F9,    KC_F10,
   ____,    ____,    KC_PGUP, ____,    ____,     ____,  F(FNOSTOGGLE),
-  KC_VOLU, KC_LEFT, KC_DOWN, KC_UP,   KC_RIGHT, ____,  KC_MPLY,
-           ____,    ____,    KC_MPRV, KC_MNXT,  ____,  ____,
+  KC_VOLU, KC_LEFT, KC_DOWN, KC_UP,   KC_RIGHT, ____,  KC_GRV,
+           ____,    ____,    KC_MPRV, KC_MNXT,  KC_MPLY,  ____,
   ____,
   ____,    ____,
   ____,    ____
-),
+  ),
 
 [LOWER] = KEYMAP(
           KC_F1,   KC_F2, KC_F3,   KC_F4,   KC_F5,   ____,
-  ____,   ____,    ____,  KC_END,  ____,    ____,    ____,
+  ____,   F(FNTHUMBSTICKMODE),    ____,  KC_END,  ____,    ____,    ____,
   ____,   KC_HOME, ____,  KC_PGDN, KC_BTN1, KC_BTN2, KC_F14,
   KC_GRV, RESET,   ____,  ____,    ____,    ____,
                                                      ____,
@@ -77,8 +79,8 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 
   ____,    KC_F6,   KC_F7,   KC_F8,   KC_F9,    KC_F10,
   ____,    ____,    KC_PGUP, ____,    ____,     ____,   ____,
-  KC_F15,  KC_LEFT, KC_DOWN, KC_UP,   KC_RIGHT, ____,   KC_MPLY,
-           ____,    ____,    KC_MPRV, KC_MNXT,  ____,   ____,
+  KC_F15,  KC_LEFT, KC_DOWN, KC_UP,   KC_RIGHT, ____,   KC_GRV,
+           ____,    ____,    KC_MPRV, KC_MNXT,  KC_MPLY,   ____,
   ____,
   KC_PGUP, ____,
   KC_PGDN, ____
@@ -87,14 +89,6 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 };
 
 void matrix_init_user(void) {
-#ifdef MOUSEKEY_ENABLE
-  // mousekey: A bit faster by default, use accel keys for fine control
-  mk_max_speed = 10;
-  // accelerate a bit faster than usual
-  mk_time_to_max = 15;
-  // Slightly slower mouse wheel speed than the default
-  mk_wheel_max_speed = 4;
-#endif
 }
 
 static const macro_t mac_cut[] PROGMEM = { D(LGUI), T(X), U(LGUI), END };
@@ -127,16 +121,8 @@ const macro_t *action_get_macro(keyrecord_t *record, uint8_t id, uint8_t opt) {
 const uint16_t PROGMEM fn_actions[] = {
   [FNCOPYCUT] = ACTION_FUNCTION(FNCOPYCUT),
   [FNOSTOGGLE] = ACTION_FUNCTION(FNOSTOGGLE),
+  [FNTHUMBSTICKMODE] = ACTION_FUNCTION(FNTHUMBSTICKMODE),
 };
-
-void blink_led(int times) {
-  while (times--) {
-    digitalWrite(C7, PinLevelHigh);
-    _delay_ms(150);
-    digitalWrite(C7, PinLevelLow);
-    _delay_ms(50);
-  }
-}
 
 void action_function(keyrecord_t *record, uint8_t id, uint8_t opt) {
   switch (id) {
@@ -144,7 +130,7 @@ void action_function(keyrecord_t *record, uint8_t id, uint8_t opt) {
     case FNOSTOGGLE:
       if (IS_RELEASED(record->event)) {
         is_mac = !is_mac;
-        blink_led(is_mac ? 3 : 1);
+        flutterby_blink_led(is_mac ? 3 : 1);
       }
       return;
 
@@ -163,6 +149,24 @@ void action_function(keyrecord_t *record, uint8_t id, uint8_t opt) {
           action_macro_play(is_mac ? mac_cut : win_cut);
         } else {
           action_macro_play(is_mac ? mac_copy : win_copy);
+        }
+      }
+      return;
+
+    case FNTHUMBSTICKMODE:
+      if (IS_RELEASED(record->event)) {
+        switch (flutterby_thumbstick_get_mode()){
+          case ThumbStickMovesPointer:
+            flutterby_thumbstick_set_mode(ThumbStickPanning);
+            flutterby_blink_led(2);
+            break;
+          case ThumbStickPanning:
+            flutterby_thumbstick_set_mode(ThumbStickMovesPointer);
+            flutterby_blink_led(4);
+            break;
+          default:
+            flutterby_blink_led(7);
+            break;
         }
       }
       return;

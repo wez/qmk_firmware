@@ -30,6 +30,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "wait.h"
 #include "pincontrol.h"
 #include "mousekey.h"
+#include "outputselect.h"
 #ifdef PROTOCOL_LUFA
 #include "lufa.h"
 #endif
@@ -104,6 +105,8 @@ void matrix_power_down(void) {
 #include "LUFA/Drivers/Peripheral/ADC.h"
 
 void matrix_power_up(void) {
+  flutterby_led_enable(true);
+
   unselect_rows();
 
   memset(matrix, 0, sizeof(matrix));
@@ -119,15 +122,18 @@ void matrix_power_up(void) {
 
 #if defined(ADAFRUIT_BLE_ENABLE) && defined(AdafruitBlePowerPin)
   adafruit_ble_power_enable(true);
+  adafruit_ble_enable_keyboard();
 #elif defined(ADAFRUIT_BLE_ENABLE) && ADAFRUIT_BLE_ENABLE_MODE_LEDS
   adafruit_ble_set_mode_leds(true);
 #endif
 
 #ifdef MOUSEKEY_ENABLE
+  // Turn on the ADC for reading the thumbstick
   ADC_Init(ADC_SINGLE_CONVERSION | ADC_PRESCALE_32);
   ADC_SetupChannel(6); // Y
   ADC_SetupChannel(7); // X
 #endif
+  flutterby_blink_led(3);
 }
 
 void matrix_init(void) {
@@ -147,9 +153,6 @@ static bool read_cols_on_row(matrix_row_t current_matrix[],
                              uint8_t current_row) {
   // Store last value of row prior to reading
   matrix_row_t last_row_value = current_matrix[current_row];
-
-  // Clear data in matrix row
-  current_matrix[current_row] = 0;
 
   // Select row and wait for row selection to stabilize
   select_row(current_row);
@@ -210,6 +213,24 @@ static uint8_t matrix_scan_raw(void) {
 }
 
 #ifdef MOUSEKEY_ENABLE
+static enum ThumbStickMode thumbstick_mode = ThumbStickMovesPointer;
+
+enum ThumbStickMode flutterby_thumbstick_get_mode(void) {
+  return thumbstick_mode;
+}
+
+void flutterby_thumbstick_set_mode(enum ThumbStickMode mode) {
+  if (thumbstick_mode == mode) {
+    return;
+  }
+  thumbstick_mode = mode;
+
+  // Clear state to avoid getting stuck if the mode is changed
+  // while the stick is not centered
+  mousekey_set_xyvh(0, 0, 0, 0);
+  mousekey_send();
+}
+
 
 #define StickMax 832
 #define StickMin 160
@@ -223,9 +244,9 @@ static uint8_t matrix_scan_raw(void) {
 static int8_t map_value(int32_t v) {
   v -= StickCenter;
 
-  int scale = 1;
+  int sign = 1;
   if (v < 0) {
-    scale = -1;
+    sign = -1;
     v = -v;
   }
 
@@ -234,9 +255,12 @@ static int8_t map_value(int32_t v) {
     return 0;
   }
 
-  int band = v / 64;
 
-  return band * mk_max_speed * scale / 3;
+  int32_t maximum = thumbstick_mode == ThumbStickMovesPointer
+                       ? mk_max_speed
+                       : mk_wheel_max_speed;
+  //dprintf("v=%d, max=%d product=%d\n", (int)v, (int)maximum, (int)(v * maximum));
+  return (sign * maximum * v) / 320;
 }
 
 static void thumbstick_read(uint8_t chanmask, int8_t *value, int8_t *last_value,
@@ -256,16 +280,26 @@ void process_thumbstick(void) {
   int8_t x;
   int8_t y;
 
+  if (where_to_send() == OUTPUT_ADAFRUIT_BLE) {
+    // We currently send this too frequently, so disable it for
+    // the moment to avoid accidentally choking up the hardware
+    return;
+  }
+
   bool dirty = false;
   thumbstick_read(ADC_CHANNEL7, &x, &last_x, &dirty);
   thumbstick_read(ADC_CHANNEL6, &y, &last_y, &dirty);
 
-  if (dirty) {
-    mousekey_set_x(x);
-    mousekey_set_y(-y);
+  if (dirty || x || y) {
+    if (thumbstick_mode == ThumbStickMovesPointer) {
+      mousekey_set_xyvh(x, -y, 0, 0);
+    } else {
+      mousekey_set_xyvh(0, 0, -y, x);
+    }
     mousekey_send();
   }
 }
+
 #endif
 
 uint8_t matrix_scan(void) {
@@ -322,5 +356,19 @@ void matrix_print(void) {
     print(": ");
     print_bin_reverse16(matrix_get_row(row));
     print("\n");
+  }
+}
+
+// Controls the Red LED attached to arduino pin 13
+void flutterby_led_enable(bool on) {
+  digitalWrite(C7, on ? PinLevelHigh : PinLevelLow);
+}
+
+void flutterby_blink_led(int times) {
+  while (times--) {
+    _delay_ms(50);
+    flutterby_led_enable(true);
+    _delay_ms(150);
+    flutterby_led_enable(false);
   }
 }

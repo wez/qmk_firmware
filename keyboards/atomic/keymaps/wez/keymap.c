@@ -35,23 +35,23 @@ enum function_id {
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 /* Keymap BASE: (Base Layer) Default Layer
  * .--------------------------------------------------------------------------------------------------------------------------------------.
- * |        | 1      | 2      | 3      | 4      | 5      | COPY   |        | PASTE  | 6      | 7      | 8      | 9      | 0      |        |
+ * |   `    | 1      | 2      | 3      | 4      | 5      | COPY   |        | PASTE  | 6      | 7      | 8      | 9      | 0      | PRTSCR |
  * |--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+-----------------|
- * | TAB    | Q      | W      | E      | R      | T      | [      |        | ]      | Y      | U      | I      | O      | P      | \      |
+ * | TAB    | Q      | W      | E      | R      | T      | [      | PGUP   | ]      | Y      | U      | I      | O      | P      | \      |
  * |--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+-----------------+--------|
- * | CTL/ESC| A      | S      | D      | F      | G      | -      |        | =      | H      | J      | K      | L      |  ;     | '      |
+ * | CTL/ESC| A      | S      | D      | F      | G      | HOME   | PGDN   | END    | H      | J      | K      | L      |  ;     | '      |
  * |--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------------------------+--------|
- * | SFT/CAP| Z      | X      | C      | V      | B      | CTRL   | ALT    | CTRL   | N      | M      | ,      | .      | /      | RSHIFT |
+ * | LSHIFT | Z      | X      | C      | V      | B      | -      | RGUI   | =      | N      | M      | ,      | .      | /      | RSHIFT |
  * |--------+--------+--------+--------+--------+-----------------+--------+--------+--------+--------+-----------------+--------+--------|
- * | `      | LOWER  | LALT   | LGUI   | LOWER  | BKSPC  | DEL    | LGUI   | ENTER  | SPACE  | LEFT   | DOWN   | UP     | RIGHT  | RAISE  |
+ * |        |        |        | LGUI   | LALT   | BKSPC  | DEL    | RALT   | ENTER  | SPACE  | LEFT   | DOWN   | UP     | RIGHT  | RAISE  |
  * '--------------------------------------------------------------------------------------------------------------------------------------'
  */
 [BASE] = {
-  {KC_NO,         KC_1,    KC_2,   KC_3,   KC_4,     KC_5,   F(FNCOPYCUT), KC_NO,    M(MPASTE),KC_6,   KC_7,     KC_8,   KC_9,    KC_0,    KC_MINS},
-  {KC_TAB,        KC_Q,    KC_W,   KC_E,   KC_R,     KC_T,   KC_LBRC,      KC_NO,    KC_RBRC,  KC_Y,   KC_U,     KC_I,   KC_O,    KC_P,    KC_BSLS},
-  {CTL_T(KC_ESC), KC_A,    KC_S,   KC_D,   KC_F,     KC_G,   KC_MINS,      KC_NO,    KC_EQL,   KC_H,   KC_J,     KC_K,   KC_L,    KC_SCLN, KC_QUOT},
-  {KC_LSFT,       KC_Z,    KC_X,   KC_C,   KC_V,     KC_B,   KC_LCTRL,     KC_RALT,  KC_RCTRL, KC_N,   KC_M,     KC_COMM,KC_DOT,  KC_SLSH, KC_RSFT},
-  {KC_NO,         KC_NO,   KC_NO,  KC_NO,  MO(LOWER),KC_BSPC,KC_DEL,       KC_LGUI,  KC_ENT,   KC_SPC, MO(RAISE),KC_NO,  KC_NO,   KC_NO,   KC_NO},
+  {KC_GRV,        KC_1,    KC_2,   KC_3,   KC_4,     KC_5,   F(FNCOPYCUT), KC_NO,    M(MPASTE),KC_6,   KC_7,     KC_8,   KC_9,    KC_0,    KC_PSCREEN},
+  {KC_TAB,        KC_Q,    KC_W,   KC_E,   KC_R,     KC_T,   KC_LBRC,      KC_PGUP,  KC_RBRC,  KC_Y,   KC_U,     KC_I,   KC_O,    KC_P,    KC_BSLS},
+  {CTL_T(KC_ESC), KC_A,    KC_S,   KC_D,   KC_F,     KC_G,   KC_HOME,      KC_PGDN,  KC_END,   KC_H,   KC_J,     KC_K,   KC_L,    KC_SCLN, KC_QUOT},
+  {KC_LSFT,       KC_Z,    KC_X,   KC_C,   KC_V,     KC_B,   KC_MINS,      KC_RGUI,  KC_EQL,   KC_N,   KC_M,     KC_COMM,KC_DOT,  KC_SLSH, KC_RSFT},
+  {MO(LOWER),     KC_NO,   KC_NO,  KC_LGUI,KC_LALT,  KC_BSPC,KC_DEL,       KC_RALT,  KC_ENT,   KC_SPC, KC_LEFT,KC_DOWN,  KC_UP,   KC_RIGHT,MO(RAISE)},
 },
 /* Keymap LOWER
  * .--------------------------------------------------------------------------------------------------------------------------------------.
@@ -69,7 +69,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 [LOWER] = {
   {____, KC_F1,  KC_F2,   KC_F3,   KC_F4, KC_F5, ____,   ____,  ____,    KC_F6,   KC_F7,   KC_F8,   KC_F9,   KC_F10, ____},
   {____, ____,   ____,    ____,    ____,  ____,  ____,   ____,  ____,    ____,    ____,    ____,    ____,    ____,   ____},
-  {KC_GRV, ____,   ____,    ____,    ____,  ____,  KC_VOLD,____,  KC_VOLU, KC_LEFT, KC_DOWN, KC_UP,   KC_RIGHT,____,   KC_MPLY},
+  {____, ____,   ____,    ____,    ____,  ____,  KC_VOLD,____,  KC_VOLU, KC_LEFT, KC_DOWN, KC_UP,   KC_RIGHT,____,   KC_MPLY},
   {____, RESET,  ____,    ____,    ____,  ____,  ____,   ____,  ____,    ____,    ____,    KC_MPRV, KC_MNXT, ____,   ____},
   {____, ____,   ____,    ____,    ____,  ____,  ____,   ____,  ____,    ____,    ____,    ____,    ____,    ____,   ____},
 },
@@ -127,8 +127,7 @@ static const macro_t win_copy[] PROGMEM = { D(LCTL), T(INS), U(LCTL), END };
 static const macro_t mac_paste[] PROGMEM = { D(LGUI), T(V), U(LGUI), END };
 static const macro_t win_paste[] PROGMEM = { D(LSFT), T(INS), U(LSFT), END };
 
-// I mostly use macs, so default to mac mode
-static bool is_mac = true;
+static bool is_mac = false;
 
 const macro_t *action_get_macro(keyrecord_t *record, uint8_t id, uint8_t opt) {
   if (!record->event.pressed) {

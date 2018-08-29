@@ -26,7 +26,7 @@ enum function_id {
   FNTHUMBSTICKMODE,
 };
 
-static bool is_mac = true;
+static bool is_mac = false;
 
 #define ____ KC_TRNS
 #define CTL(k)  ACTION_MODS_KEY(MOD_LCTL, k)
@@ -37,16 +37,16 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
   KC_TAB,   KC_Q, KC_W, KC_E, KC_R, KC_T, KC_LBRC,
   CTL_T(KC_ESC),  KC_A, KC_S, KC_D, KC_F, KC_G, KC_MINS,
   KC_LSFT, KC_Z, KC_X, KC_C, KC_V, KC_B,
-                                                    KC_LSFT,
-                                         MO(LOWER), ALL_T(KC_NO),
+                                                    KC_LGUI,
+                                         KC_LCTRL,  MO(LOWER),
                                          KC_BSPC,   KC_DEL,
 
   M(MPASTE), KC_6, KC_7, KC_8,    KC_9,   KC_0,
   KC_RBRC,   KC_Y, KC_U, KC_I,    KC_O,   KC_P,    KC_BSLS,
   KC_EQL,    KC_H, KC_J, KC_K,    KC_L,   KC_SCLN, KC_QUOT,
              KC_N, KC_M, KC_COMM, KC_DOT, KC_SLSH, KC_RSFT,
-  KC_RALT,
-  KC_LGUI,   MO(RAISE),
+  KC_RGUI,
+  KC_RALT,   KC_RCTRL,
   KC_ENT,    KC_SPC
 ),
 

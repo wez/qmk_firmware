@@ -107,7 +107,7 @@ flip: $(BUILD_DIR)/$(TARGET).hex
 	batchisp -hardware usb -device $(MCU) -operation start reset 0
 
 avrdude: $(BUILD_DIR)/$(TARGET).hex sizeafter
-	while ! /Applications/Arduino.app/Contents/Java/hardware/tools/avr/bin/avrdude -C/Applications/Arduino.app/Contents/Java/hardware/tools/avr/etc/avrdude.conf -v -patmega32u4 -cavr109 -b57600 -D -Uflash:w:$(BUILD_DIR)/$(TARGET).hex:i ; do sleep 1 ; done
+	while ! avrdude -v -patmega32u4 -cavr109 -b57600 -P/dev/ttyACM0 -D -Uflash:w:$(BUILD_DIR)/$(TARGET).hex:i ; do sleep 1 ; done
 
 dfu: $(BUILD_DIR)/$(TARGET).hex sizeafter
 	until dfu-programmer $(MCU) get bootloader-version; do\

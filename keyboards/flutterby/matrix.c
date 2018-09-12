@@ -310,7 +310,7 @@ uint8_t matrix_scan(void) {
   // Try to manage battery power a little better than the default scan.
   // If the user is idle for a while, turn off some things that draw
   // power.
-
+#if 0
   if (timer_elapsed32(matrix_last_modified) > MATRIX_POWER_SAVE) {
     matrix_power_down();
 
@@ -339,6 +339,7 @@ uint8_t matrix_scan(void) {
       break;
     }
   }
+#endif
 
 #ifdef MOUSEKEY_ENABLE
   process_thumbstick();

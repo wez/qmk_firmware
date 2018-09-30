@@ -16,7 +16,8 @@ SRC = matrix.c sx1509.c
 # Build Options
 #   change yes to no to disable
 #
-ADAFRUIT_BLE_ENABLE ?= no   # Enable Bluetooth with the Adafruit BLE boards
+BLUETOOTH = AdafruitBLE     # Enable Bluetooth with the Adafruit BLE boards
+
 MOUSEKEY_ENABLE ?= no       # Mouse keys(+4700)
 
 EXTRAKEY_ENABLE ?= yes       # Audio control and System control(+450)

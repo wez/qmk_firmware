@@ -63,8 +63,6 @@ static matrix_row_t matrix[MATRIX_ROWS];
 // matrix power saving
 static uint32_t matrix_last_modified;
 
-#define ENABLE_BLE_MODE_LEDS 0
-
 #ifdef DEBUG_MATRIX_SCAN_RATE
 static uint32_t scan_timer;
 static uint32_t scan_count;
@@ -169,7 +167,6 @@ static uint8_t matrix_scan_raw(void) {
   debug_matrix = true;
   debug_keyboard = true;
 #endif
-
   sx1509_make_ready();
 
   for (uint8_t current_row = 0; current_row < MATRIX_ROWS; current_row++) {
@@ -236,7 +233,7 @@ void matrix_print(void) {
 
 // Controls the Red LED attached to arduino pin 13
 void halfdeck_led_enable(bool on) {
-  // C7 (pin 13) is used as a column input
+  // C7 (pin 13) is used as a column input, so this is turned off
 #if 0
   digitalWrite(C7, on ? PinLevelHigh : PinLevelLow);
 #endif

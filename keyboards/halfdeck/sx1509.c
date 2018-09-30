@@ -64,10 +64,7 @@ static bool write_one(uint8_t reg, uint8_t val) {
 #define set_reg(reg, val) if (!write_one(reg, val)) { goto done; }
 
 bool sx1509_init(void) {
-  // For whatever reason, I had to dial down the bus frequency
-  // to about half speed to get a reliable I2C communication
-  // working with the atmega32u4 in this configuration.
-  TWI_Init(TWI_BIT_PRESCALE_1, TWI_BITLENGTH_FROM_FREQ(1, 50000));
+  TWI_Init(TWI_BIT_PRESCALE_1, TWI_BITLENGTH_FROM_FREQ(1, 400000UL));
 
   initialized = false;
 

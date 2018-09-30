@@ -24,6 +24,8 @@ enum function_id {
   FNOSTOGGLE,
 };
 
+// Whether to come up in "mac mode", which affects the copy/paste macros.
+// You can use the FNOSTOGGLE function to toggle this at runtime.
 static bool is_mac = false;
 
 #define ___ KC_TRNS
@@ -41,7 +43,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     MO(RAISE),     KC_VOLD,  KC_PSCREEN,                        MO(RAISE),KC_BSPC,
 
     // RIGHT
-    M(MPASTE),  KC_6,     KC_7,     KC_8,      KC_9,       KC_0,    ___,
+    M(MPASTE),  KC_6,     KC_7,     KC_8,      KC_9,       KC_0,    MO(RAISE),
     KC_RBRC,    KC_Y,     KC_U,     KC_I,      KC_O,       KC_P,    KC_BSLS,
     KC_EQL,     KC_H,     KC_J,     KC_K,      KC_L,       KC_SCLN, KC_QUOT,
                 KC_N,     KC_M,     KC_COMM,   KC_DOT,     KC_SLSH, KC_RSFT,
@@ -53,13 +55,13 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
   [RAISE]=
   KEYMAP(
     // LEFT
-    ___,   KC_F1,   KC_F2,  KC_F3,  KC_F4, KC_F5, ___,
-    ___,   ___,     ___,    ___,    ___,   ___,   ___,
-    ___,   ___,     ___,    ___,    ___,   ___,   ___,
-    ___,   RESET,   ___,    ___,    ___,   ___,
-                                                  ___,
-           ___,                            ___,   ___,
-    ___,   ___,     ___,                   ___,   ___,
+    F(FNOSTOGGLE), KC_F1,   KC_F2,  KC_F3,  KC_F4, KC_F5, ___,
+    ___,           ___,     ___,    ___,    ___,   ___,   ___,
+    ___,           ___,     ___,    ___,    ___,   ___,   ___,
+    ___,           RESET,   ___,    ___,    ___,   ___,
+                                                   ___,
+                   ___,                            ___,   ___,
+    ___,           ___,     ___,                   ___,   ___,
 
     // RIGHT
     ___,   KC_F6, KC_F7,   KC_F8,   KC_F9,    KC_F10,   ___,
@@ -76,15 +78,19 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 void matrix_init_user(void) {
 }
 
+// The key sequence for the "cut" keyboard shortcut on mac or windows.
 static const macro_t mac_cut[] PROGMEM = { D(LGUI), T(X), U(LGUI), END };
 static const macro_t win_cut[] PROGMEM = { D(LSFT), T(DELT), U(LSFT), END };
 
+// The key sequence for the "copy" keyboard shortcut on mac or windows.
 static const macro_t mac_copy[] PROGMEM = { D(LGUI), T(C), U(LGUI), END };
 static const macro_t win_copy[] PROGMEM = { D(LCTL), T(INS), U(LCTL), END };
 
+// The key sequence for the "paste" keyboard shortcut on mac or windows.
 static const macro_t mac_paste[] PROGMEM = { D(LGUI), T(V), U(LGUI), END };
 static const macro_t win_paste[] PROGMEM = { D(LSFT), T(INS), U(LSFT), END };
 
+// This function allows the rest of the firmware to lookup your macro sequence
 const macro_t *action_get_macro(keyrecord_t *record, uint8_t id, uint8_t opt) {
   if (!record->event.pressed) {
     return MACRO_NONE;

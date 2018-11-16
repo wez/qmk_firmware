@@ -10,7 +10,7 @@ OPT_DEFS += -DINTERRUPT_CONTROL_ENDPOINT
 OPT_DEFS += -DBOOTLOADER_SIZE=4096
 
 CUSTOM_MATRIX = yes          # We have a custom matrix
-SRC = matrix.c sx1509.c
+SRC = matrix.c sx1509.c pinnacle.cpp
 
 
 # Build Options
@@ -18,7 +18,7 @@ SRC = matrix.c sx1509.c
 #
 #BLUETOOTH = AdafruitBLE     # Enable Bluetooth with the Adafruit BLE boards
 
-MOUSEKEY_ENABLE ?= no       # Mouse keys(+4700)
+MOUSEKEY_ENABLE ?= yes       # Mouse keys(+4700)
 
 EXTRAKEY_ENABLE ?= yes       # Audio control and System control(+450)
 CONSOLE_ENABLE ?= yes        # Console for debug(+400)

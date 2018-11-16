@@ -24,6 +24,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "config.h"
 #include "lib/lufa/LUFA/Drivers/Peripheral/TWI.h"
 #include "matrix.h"
+#include "mousekey.h"
 #include "print.h"
 #include "timer.h"
 #include "util.h"
@@ -35,6 +36,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "suspend.h"
 #include <util/atomic.h>
 #include <string.h>
+#include "pinnacle.h"
 
 // row0   a2   PF5
 // row1   a3   PF4
@@ -68,6 +70,9 @@ static uint32_t scan_timer;
 static uint32_t scan_count;
 #endif
 
+static bool trackpad_up = false;
+static uint16_t retry_trackpad = 0;
+
 static inline void select_row(uint8_t row) {
   uint8_t pin = row_pins[row];
 
@@ -95,6 +100,10 @@ void matrix_power_down(void) {
 
 void matrix_power_up(void) {
   halfdeck_led_enable(true);
+
+  if (!trackpad_up) {
+    trackpad_up = trackpad_init();
+  }
 
   unselect_rows();
 
@@ -211,7 +220,67 @@ static uint8_t matrix_scan_raw(void) {
   return 1;
 }
 
+void process_trackpad(void) {
+  struct TrackpadData data;
+
+  if (!trackpad_up) {
+    if (retry_trackpad--) {
+      return;
+    }
+
+    trackpad_up = trackpad_init();
+    if (!trackpad_up) {
+      retry_trackpad = 1000;
+      return;
+    }
+  }
+
+  if (!trackpad_get_data(&data)) {
+    mousekey_clear();
+    return;
+  }
+
+#if 0
+  print("trackpad: buttons: ");
+  pbin(data.buttons);
+  print(" x=");
+  pdec(data.xDelta);
+  if (data.xDelta < 0) {
+    print("(-ve) ");
+  }
+  print(" y=");
+  pdec(data.yDelta);
+  if (data.yDelta < 0) {
+    print("(-ve) ");
+  }
+  print(" wheel=");
+  pdec(data.wheel);
+  print("\n");
+#endif
+
+#if 1
+  mousekey_set_xyvh(data.xDelta, -data.yDelta, data.wheel, 0);
+  if (data.buttons & 1) {
+    mousekey_on(KC_MS_BTN1);
+  } else {
+    mousekey_off(KC_MS_BTN1);
+  }
+  if (data.buttons & 2) {
+    mousekey_on(KC_MS_BTN2);
+  } else {
+    mousekey_off(KC_MS_BTN2);
+  }
+  if (data.buttons & 4) {
+    mousekey_on(KC_MS_BTN3);
+  } else {
+    mousekey_off(KC_MS_BTN3);
+  }
+  mousekey_send();
+#endif
+}
+
 uint8_t matrix_scan(void) {
+  process_trackpad();
   if (!matrix_scan_raw()) {
     return 0;
   }

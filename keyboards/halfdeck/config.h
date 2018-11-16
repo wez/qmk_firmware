@@ -37,6 +37,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define MATRIX_COLS 12
 #define DIODE_DIRECTION CUSTOM_MATRIX
 
+#define MOUSEKEY_ANALOG_XYVH 1
+#define MOUSEKEY_MAX_SPEED 15
+#define MOUSEKEY_WHEEL_MAX_SPEED 1
+
 /* Debounce reduces chatter (unintended double-presses) - set 0 if debouncing is not needed */
 #define DEBOUNCING_DELAY 5
 

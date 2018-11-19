@@ -64,7 +64,7 @@ static bool write_one(uint8_t reg, uint8_t val) {
 #define set_reg(reg, val) if (!write_one(reg, val)) { goto done; }
 
 bool sx1509_init(void) {
-  TWI_Init(TWI_BIT_PRESCALE_1, TWI_BITLENGTH_FROM_FREQ(1, 400000UL));
+  TWI_Init(TWI_BIT_PRESCALE_1, TWI_BITLENGTH_FROM_FREQ(1, 200000UL));
 
   initialized = false;
 

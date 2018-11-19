@@ -24,6 +24,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <util/delay.h>
 
 #define SPI_MODE1 0x04
+constexpr uint8_t kTapThresh = 30;
 
 enum class Pinnacle::RegAddr : uint8_t {
   FirmwareID = 0x00,
@@ -37,6 +38,7 @@ enum class Pinnacle::RegAddr : uint8_t {
   ZIdle = 0x0a,
   ZScaler = 0x0b,
   PacketByte0 = 0x12,
+  PacketByte1 = 0x13,
   PacketByte2 = 0x14,
   EraValue = 0x1b,
   EraHighByte = 0x1c,
@@ -155,6 +157,11 @@ bool Pinnacle::init() {
   digitalWrite(PinnacleDRPin, PinLevelLow);
 #endif
 
+  lastData_.hover = TrackpadHover::OffPad;
+  tap_ = TrackpadTap::None;
+  zIdleCount_ = 0;
+  activeCount_ = 0;
+
   initSPI();
   if (!cyclePower()) {
     print("pinnacle: failed to cyclePower\n");
@@ -166,13 +173,18 @@ bool Pinnacle::init() {
     return false;
   }
 
-  // Max out the scaler, otherwise the touchpad is not sensitive enough
-  if (!setZScaler(0xff)) {
+  // Increase the scaler, otherwise the touchpad is not sensitive enough
+  if (!setZScaler(20)) {
     print("pinnacle: failed to set Z scaler\n");
     return false;
   }
 
-  if (!enableRelativeMode(true)) {
+  if (!setZIdleCount(kTapThresh + 1)) {
+    print("pinnacle: failed to set zidle count\n");
+    return false;
+  }
+
+  if (!enableRelativeMode(false)) {
     print("pinnacle: failed call enableRelativeMode\n");
     return false;
   }
@@ -221,74 +233,127 @@ bool Pinnacle::setZScaler(uint8_t value) {
 }
 
 bool Pinnacle::getAbsoluteData(struct TrackpadData *result) {
-  uint8_t data[4];
-  if (!rapRead(RegAddr::PacketByte2, data, sizeof(data))) {
+  uint8_t rawdata[5];
+  if (!rapRead(RegAddr::PacketByte1, rawdata, sizeof(rawdata))) {
     return false;
   }
 
-  result->buttons = 0;
-  result->xDelta = int16_t(data[0]) | ((int16_t(data[2]) & 0xf) << 8);
-  result->yDelta = int16_t(data[1]) | ((int16_t(data[2]) & 0xf0) << 4);
-  result->wheel = int8_t(data[3] & 0x3f);
+  AbsTrackpadData data;
+  data.hover = TrackpadHover::OffPad;
+  data.xpos = uint16_t(rawdata[1]) | ((uint16_t(rawdata[3]) & 0xf) << 8);
+  data.ypos = uint16_t(rawdata[2]) | ((uint16_t(rawdata[3]) & 0xf0) << 4);
+  uint8_t z = rawdata[4] & 0x3f;
+  uint8_t palm = rawdata[0] & 0b00111111;
 
-  auto is_idle =
-      result->xDelta == 0 && result->yDelta == 0 && result->wheel == 0;
-  if (!is_idle) {
+  TrackpadTap tap = TrackpadTap::None;
+
+  auto is_z_idle = data.xpos == 0 && data.ypos == 0 && z == 0;
+  if (!is_z_idle) {
     // Constrain to valid ranges; it is possible to receive values outside
     // this range due to electrical noise.
-    if (result->xDelta < PINNACLE_X_LOWER) {
-      result->xDelta = PINNACLE_X_LOWER;
-    } else if (result->xDelta > PINNACLE_X_UPPER) {
-      result->xDelta = PINNACLE_X_UPPER;
+    if (data.xpos < PINNACLE_X_LOWER) {
+      data.xpos = PINNACLE_X_LOWER;
+    } else if (data.xpos > PINNACLE_X_UPPER) {
+      data.xpos = PINNACLE_X_UPPER;
     }
 
-    if (result->yDelta < PINNACLE_Y_LOWER) {
-      result->yDelta = PINNACLE_Y_LOWER;
-    } else if (result->yDelta >= PINNACLE_Y_UPPER) {
-      result->yDelta = PINNACLE_Y_UPPER;
+    if (data.ypos < PINNACLE_Y_LOWER) {
+      data.ypos = PINNACLE_Y_LOWER;
+    } else if (data.ypos > PINNACLE_Y_UPPER) {
+      data.ypos = PINNACLE_Y_UPPER;
     }
+
+    // Apply some processing to detect whether a finger is "hovering"
+    // over the pad.  Curved pads cause the finger to be closer to the
+    // sensors in the center of the pad compared to the edges of the pad,
+    // so this buckets the finger position and applies a transformation.
+
+    auto zone_x = data.xpos / ZONESCALE;
+    auto zone_y = data.ypos / ZONESCALE;
+
+    static const uint8_t mapping[ROWS_Y][COLS_X] = {
+        {0, 0, 0, 0, 0, 0, 0, 0},   {0, 2, 3, 5, 5, 3, 2, 0},
+        {0, 3, 5, 15, 15, 5, 2, 0}, {0, 3, 5, 15, 15, 5, 3, 0},
+        {0, 2, 3, 5, 5, 3, 2, 0},   {0, 0, 0, 0, 0, 0, 0, 0},
+    };
+
+    auto hovering = !(z > mapping[zone_x][zone_y]);
+    data.hover = hovering ? TrackpadHover::Hovering : TrackpadHover::OnPad;
+
+    // Does this look like a drag?  We get some number of zIdle packets
+    // after the finger has left the pad and those come at the rate of
+    // one every 10ms.  We can use that count to determine how long it
+    // has been since the finger left the pad.
+    if (zIdleCount_ && zIdleCount_ < kTapThresh) {
+      // We transitioned "on->off->on" and the off portion was within
+      // our threshold for deciding that the primary button is down
+      tap = TrackpadTap::Drag;
+    } else if (tap_ == TrackpadTap::Drag) {
+      tap = TrackpadTap::Drag;
+    } else {
+      tap = TrackpadTap::None;
+    }
+
+    zIdleCount_ = 0;
+    activeCount_++;
+  } else {
+    if (zIdleCount_ == 0 && activeCount_ <= kTapThresh) {
+      // Transitioned "off->on->off" and the on portion was
+      // within the threshold, so this is a  tap
+      tap = TrackpadTap::Tap;
+    } else {
+      tap = TrackpadTap::None;
+    }
+    zIdleCount_++;
+    activeCount_ = 0;
   }
 
-  // Apply some processing to detect whether a finger is "hovering"
-  // over the pad.  Curved pads cause the finger to be closer to the
-  // sensors in the center of the pad compared to the edges of the pad,
-  // so this buckets the finger position and applies a transformation.
-
-  auto zone_x = result->xDelta / ZONESCALE;
-  auto zone_y = result->yDelta / ZONESCALE;
-
-  const uint8_t mapping[ROWS_Y][COLS_X] = {
-      {0, 0, 0, 0, 0, 0, 0, 0},   {0, 2, 3, 5, 5, 3, 2, 0},
-      {0, 3, 5, 15, 15, 5, 2, 0}, {0, 3, 5, 15, 15, 5, 3, 0},
-      {0, 2, 3, 5, 5, 3, 2, 0},   {0, 0, 0, 0, 0, 0, 0, 0},
-  };
-
-  auto hovering = !(result->wheel > mapping[zone_x][zone_y]);
+  result->buttons = (tap == TrackpadTap::None) ? 0 : 1;
+  tap_ = tap;
 
 #if 0
-  print("raw abs ");
-  pbin(data[0]);
-  print(" ");
-  pbin(data[1]);
-  print(" ");
-  pbin(data[2]);
-  print(" ");
-  pbin(data[3]);
-  print(" idle=");
-  pdec(is_idle);
+  print("abs x=");
+  pdec(data.xpos);
+  print(" y=");
+  pdec(data.ypos);
+  print(" z=");
+  pdec(z);
   print(" hover=");
-  pdec(hovering);
+  if(data.hover == TrackpadHover::OffPad) {
+    print("OffPad");
+  } else if (data.hover == TrackpadHover::Hovering) {
+    print("Hovering");
+  } else {
+    print("OnPad");
+  }
+  print(" zidle=");
+  pdec(zIdleCount_);
+  print(" palm=");
+  pdec(palm);
+  print(" button=");
+  if (tap == TrackpadTap::None) {
+    print("None");
+  } else if (tap == TrackpadTap::Tap) {
+    print("Tap");
+  } else {
+    print("Drag");
+  }
   print("\n");
 #endif
 
   // Convert this to some kind of relative mode.
-  // Let's make it work like a thumbstick and use the distance
-  // from the center as the strength of the movement in that direction
-  constexpr int16_t kXCenter = (PINNACLE_X_LOWER + PINNACLE_X_UPPER) / 2;
-  constexpr int16_t kYCenter = (PINNACLE_Y_LOWER + PINNACLE_Y_UPPER) / 2;
-  result->xDelta -= kXCenter;
-  result->yDelta -= kYCenter;
+  if (tap != TrackpadTap::Tap && data.hover == TrackpadHover::OnPad &&
+      lastData_.hover == TrackpadHover::OnPad) {
+    result->xDelta = int16_t(data.xpos) - int16_t(lastData_.xpos);
+    // Note: abs data has inverted y coord vs. relative data
+    result->yDelta = int16_t(lastData_.ypos) - int16_t(data.ypos);
+  } else {
+    result->xDelta = 0;
+    result->yDelta = 0;
+  }
   result->wheel = 0;
+
+  lastData_ = data;
 
   return true;
 }
@@ -325,14 +390,19 @@ bool Pinnacle::setZIdleCount(uint8_t count) {
   return rapWrite(RegAddr::ZIdle, count);
 }
 
+bool Pinnacle::getZIdleCount(uint8_t *count) {
+  return rapRead(RegAddr::ZIdle, count, sizeof(*count));
+}
+
 bool Pinnacle::testIfPresent() {
-  uint8_t current = 0;
   if (!rapWrite(RegAddr::ZIdle, 0)) {
     return false;
   }
 
   _delay_us(500);
-  if (!rapRead(RegAddr::ZIdle, &current, sizeof(current))) {
+
+  uint8_t current = 0;
+  if (!getZIdleCount(&current)) {
     return false;
   }
   return current == 0;
@@ -427,9 +497,9 @@ bool Pinnacle::recalibrate() {
   }
   current.calibrate = true;
   current.background_comp_enable = true;
-  current.tap_comp_enable = false;
-  current.track_error_comp_enable = false;
-  current.nerd_comp_enable = false;
+  current.tap_comp_enable = true;
+  current.track_error_comp_enable = true;
+  current.nerd_comp_enable = true;
 
   if (!rapWrite(RegAddr::CalConfig1, *(uint8_t *)&current)) {
     return false;
@@ -677,7 +747,7 @@ bool Pinnacle::tuneSensitivity() {
   if (!eraWrite(0x0149, 0)) {
     return false;
   }
-  // xaxis wide y min (3)
+  // yaxis wide z min (3)
   if (!eraWrite(0x0168, 0)) {
     return false;
   }
@@ -686,9 +756,9 @@ bool Pinnacle::tuneSensitivity() {
   if (!rapRead(RegAddr::FeedConfig3, (uint8_t *)&config3, sizeof(config3))) {
     return false;
   }
-  config3.disable_noise_avoidance = true;
-  config3.disable_palm_nerd_meas = true;
-  config3.disable_cross_rate_smoothing = true;
+  config3.disable_noise_avoidance = false;
+  config3.disable_palm_nerd_meas = false;
+  config3.disable_cross_rate_smoothing = false;
   if (!rapWrite(RegAddr::FeedConfig3, *(uint8_t *)&config3)) {
     return false;
   }

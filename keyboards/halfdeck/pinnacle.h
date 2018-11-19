@@ -39,6 +39,24 @@ struct TrackpadData {
   int8_t wheel;
 };
 
+enum TrackpadHover {
+  OffPad = 0,
+  Hovering,
+  OnPad,
+};
+
+enum TrackpadTap {
+  None,
+  Tap,
+  Drag,
+};
+
+struct AbsTrackpadData {
+  uint16_t xpos;
+  uint16_t ypos;
+  enum TrackpadHover hover;
+};
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -88,6 +106,7 @@ private:
   // NOTE: Z-idle packets contains all zero values and are useful for detecting
   // rapid taps
   bool setZIdleCount(uint8_t count);
+  bool getZIdleCount(uint8_t *count);
 
   bool getRelativeData(struct TrackpadData *result);
   bool getAbsoluteData(struct TrackpadData *result);
@@ -98,5 +117,9 @@ private:
   uint8_t spcr_;
   uint8_t spsr_;
   bool relative_{false};
+  AbsTrackpadData lastData_;
+  uint8_t zIdleCount_{0};
+  uint8_t activeCount_{0};
+  TrackpadTap tap_;
 };
 #endif

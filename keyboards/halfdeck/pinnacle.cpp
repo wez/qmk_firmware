@@ -25,7 +25,17 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <util/delay.h>
 
 #define SPI_MODE1 0x04
-constexpr uint8_t kTapThresh = 30;
+// in an off->on->off sequence, the max duration for the "on" portion
+// that we'll allow for recognizing a tap vs. slowly lifting and
+// repositioning the finger on the pad before lifting off again.
+constexpr uint8_t kTapThresh = 50; /* in 10's of ms */
+
+// in an on->off->on sequence, the max duration for the off portion
+// that we'll allow for recognizing a drag.  This is a bit like double
+// a double click except that the finger remains on the pad at the end
+// instead of lifting off.  In this situation we treat this as holding
+// down the left button.
+constexpr uint8_t kDragThresh = 30; /* in 10's of ms */
 
 enum class Pinnacle::RegAddr : uint8_t {
   FirmwareID = 0x00,
@@ -176,12 +186,14 @@ bool Pinnacle::init() {
   }
 
   // Increase the scaler, otherwise the touchpad is not sensitive enough
-  if (!setZScaler(20)) {
+  // max Z-value is 0x63
+  if (!setZScaler(0x63)) {
     print("pinnacle: failed to set Z scaler\n");
     return false;
   }
 
-  if (!setZIdleCount(kTapThresh + 1)) {
+  if (!setZIdleCount((kTapThresh > kDragThresh ? kTapThresh : kDragThresh) +
+                     1)) {
     print("pinnacle: failed to set zidle count\n");
     return false;
   }
@@ -191,10 +203,12 @@ bool Pinnacle::init() {
     return false;
   }
 
+#if 0
   if (!tuneSensitivity()) {
     print("pinnacle: failed to tune sensitivity\n");
     return false;
   }
+#endif
 
   if (!enableTwoFingerScrollGesture()) {
     print("pinnacle: failed to enableTwoFingerScrollGesture\n");
@@ -288,7 +302,7 @@ bool Pinnacle::getAbsoluteData(struct TrackpadData *result) {
     // after the finger has left the pad and those come at the rate of
     // one every 10ms.  We can use that count to determine how long it
     // has been since the finger left the pad.
-    if (zIdleCount_ && zIdleCount_ < kTapThresh) {
+    if (zIdleCount_ && zIdleCount_ < kDragThresh) {
       // We transitioned "on->off->on" and the off portion was within
       // our threshold for deciding that the primary button is down
       tap = TrackpadTap::Drag;
@@ -773,7 +787,7 @@ bool Pinnacle::tuneSensitivity() {
     return false;
   }
   config3.disable_noise_avoidance = false;
-  config3.disable_palm_nerd_meas = false;
+  config3.disable_palm_nerd_meas = true;
   config3.disable_cross_rate_smoothing = false;
   if (!rapWrite(RegAddr::FeedConfig3, *(uint8_t *)&config3)) {
     return false;

@@ -39,7 +39,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #define MOUSEKEY_ANALOG_XYVH 1
 #define MOUSEKEY_MAX_SPEED 15
-//#define MOUSEKEY_WHEEL_MAX_SPEED 1
+// This sets the compile time default for mk_wheel_max_speed.
+// You can change mk_wheel_max_speed in your keymap at runtime
+// if you want to dynamically adjust this value.
+#define MOUSEKEY_WHEEL_MAX_SPEED 1
 
 /* Debounce reduces chatter (unintended double-presses) - set 0 if debouncing is not needed */
 #define DEBOUNCING_DELAY 5

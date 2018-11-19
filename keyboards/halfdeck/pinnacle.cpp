@@ -18,6 +18,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "pinnacle.h"
 #include "debug.h"
+#include "mousekey.h"
 #include "pincontrol.h"
 #include "timer.h"
 #include <util/atomic.h>
@@ -161,6 +162,7 @@ bool Pinnacle::init() {
   tap_ = TrackpadTap::None;
   zIdleCount_ = 0;
   activeCount_ = 0;
+  panning_ = TrackpadPanning::MovePointer;
 
   initSPI();
   if (!cyclePower()) {
@@ -218,6 +220,8 @@ bool Pinnacle::init() {
 
   return true;
 }
+
+void Pinnacle::setPanningMode(enum TrackpadPanning mode) { panning_ = mode; }
 
 bool Pinnacle::getData(struct TrackpadData *result) {
   auto success = relative_ ? getRelativeData(result) : getAbsoluteData(result);
@@ -354,6 +358,18 @@ bool Pinnacle::getAbsoluteData(struct TrackpadData *result) {
   result->wheel = 0;
 
   lastData_ = data;
+
+  if (panning_ == TrackpadPanning::Panning) {
+    // Instead of moving the pointer, emit wheel events
+    result->wheel = result->yDelta;
+    if (result->wheel > mk_wheel_max_speed) {
+      result->wheel = mk_wheel_max_speed;
+    } else if (result->wheel < -int8_t(mk_wheel_max_speed)) {
+      result->wheel = -int8_t(mk_wheel_max_speed);
+    }
+    result->xDelta = 0;
+    result->yDelta = 0;
+  }
 
   return true;
 }
@@ -769,6 +785,10 @@ bool Pinnacle::tuneSensitivity() {
 static Pinnacle trackpad;
 
 bool trackpad_init() { return trackpad.init(); }
+
+void trackpad_set_mode(enum TrackpadPanning mode) {
+  trackpad.setPanningMode(mode);
+}
 
 bool trackpad_get_data(struct TrackpadData *data) {
   if (!trackpad.dataIsReady()) {

@@ -57,11 +57,26 @@ struct AbsTrackpadData {
   enum TrackpadHover hover;
 };
 
+// As the Pinnacle device is single touch and not multitouch,
+// and because the circular touch pad seems least sensitive
+// around the edges, we don't have a great way to scroll via
+// the pad.  The default relative mode of the cirque device
+// is to reserve the rightmost column as a scrolling region,
+// but this doesn't really work so well on a circular device.
+// Instead we offer a selectable mode that allows routing the
+// analog Y signal to either move the pointer or generate
+// scroll wheel events.  This enum represents that selection.
+enum TrackpadPanning {
+  MovePointer,
+  Panning,
+};
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 bool trackpad_init(void);
 bool trackpad_get_data(struct TrackpadData *data);
+void trackpad_set_mode(enum TrackpadPanning mode);
 #ifdef __cplusplus
 }
 #endif
@@ -82,6 +97,7 @@ public:
   bool clearFlags();
 
   bool getData(struct TrackpadData *result);
+  void setPanningMode(enum TrackpadPanning mode);
 
 private:
   enum class RegAddr : uint8_t;
@@ -121,5 +137,6 @@ private:
   uint8_t zIdleCount_{0};
   uint8_t activeCount_{0};
   TrackpadTap tap_;
+  TrackpadPanning panning_;
 };
 #endif

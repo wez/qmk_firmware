@@ -223,6 +223,12 @@ static uint8_t matrix_scan_raw(void) {
 void process_trackpad(void) {
   struct TrackpadData data;
 
+  // If we failed to initialize the trackpad at the start it
+  // could be either that the trackpad is not installed, or
+  // possibly that the TRRS cable connecting the two halves
+  // was not plugged or was too long.  Rather than spinning
+  // forever on startup, try to re-init the trackpad every
+  // so often.
   if (!trackpad_up) {
     if (retry_trackpad--) {
       return;
@@ -240,25 +246,8 @@ void process_trackpad(void) {
     return;
   }
 
-#if 0
-  print("trackpad: buttons: ");
-  pbin(data.buttons);
-  print(" x=");
-  pdec(data.xDelta);
-  if (data.xDelta < 0) {
-    print("(-ve) ");
-  }
-  print(" y=");
-  pdec(data.yDelta);
-  if (data.yDelta < 0) {
-    print("(-ve) ");
-  }
-  print(" wheel=");
-  pdec(data.wheel);
-  print("\n");
-#endif
-
 #if 1
+  // Feed the touchpad data into the mouse report
   mousekey_set_xyvh(data.xDelta, -data.yDelta, data.wheel, 0);
   if (data.buttons & 1) {
     mousekey_on(KC_MS_BTN1);
@@ -275,6 +264,10 @@ void process_trackpad(void) {
   } else {
     mousekey_off(KC_MS_BTN3);
   }
+
+  // and ensure that the host has sampled this before we continue,
+  // as we can potentially update our state more frequently than
+  // the host will poll us.
   mousekey_send();
 #endif
 }

@@ -3,6 +3,7 @@
 #include "pincontrol.h"
 #ifdef MOUSEKEY_ENABLE
 #include "mousekey.h"
+#include "pinnacle.h"
 #endif
 
 // Each layer gets a name for readability, which is then used in the keymap matrix below.
@@ -22,6 +23,7 @@ enum macro_id {
 enum function_id {
   FNCOPYCUT,
   FNOSTOGGLE,
+  FNPANNING,
 };
 
 // Whether to come up in "mac mode", which affects the copy/paste macros.
@@ -55,10 +57,10 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
   [RAISE]=
   KEYMAP(
     // LEFT
-    F(FNOSTOGGLE), KC_F1,   KC_F2,  KC_F3,  KC_F4, KC_F5, ___,
-    ___,           ___,     ___,    ___,    ___,   ___,   ___,
-    ___,           ___,     ___,    ___,    ___,   ___,   ___,
-    ___,           RESET,   ___,    ___,    ___,   ___,
+    F(FNOSTOGGLE), KC_F1,   KC_F2,  KC_F3,         KC_F4,        KC_F5, ___,
+    ___,           ___,     ___,    ___,           ___,          ___,   ___,
+    ___,           ___,     ___,    KC_MS_BTN2,    F(FNPANNING), ___,   ___,
+    ___,           RESET,   ___,    ___,           ___,   ___,
                                                    ___,
                    KC_F15,                         ___,   ___,
     ___,           KC_F14,  ___,                   ___,   ___,
@@ -112,6 +114,7 @@ const macro_t *action_get_macro(keyrecord_t *record, uint8_t id, uint8_t opt) {
 const uint16_t PROGMEM fn_actions[] = {
   [FNCOPYCUT] = ACTION_FUNCTION(FNCOPYCUT),
   [FNOSTOGGLE] = ACTION_FUNCTION(FNOSTOGGLE),
+  [FNPANNING] = ACTION_FUNCTION(FNPANNING),
 };
 
 void action_function(keyrecord_t *record, uint8_t id, uint8_t opt) {
@@ -141,6 +144,15 @@ void action_function(keyrecord_t *record, uint8_t id, uint8_t opt) {
           action_macro_play(is_mac ? mac_copy : win_copy);
         }
       }
+      return;
+    case FNPANNING:
+#ifdef MOUSEKEY_ENABLE
+      if (IS_RELEASED(record->event)) {
+        trackpad_set_mode(MovePointer);
+      } else {
+        trackpad_set_mode(Panning);
+      }
+#endif
       return;
   }
 }

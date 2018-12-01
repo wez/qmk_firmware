@@ -37,6 +37,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define MATRIX_COLS 12
 #define DIODE_DIRECTION CUSTOM_MATRIX
 
+#define TOUCHPAD_IS_CIRQUE 0
+
 #define MOUSEKEY_ANALOG_XYVH 1
 #define MOUSEKEY_MAX_SPEED 15
 // This sets the compile time default for mk_wheel_max_speed.

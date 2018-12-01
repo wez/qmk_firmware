@@ -22,7 +22,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "debug.h"
 #include "halfdeck.h"
 #include "config.h"
-#include "lib/lufa/LUFA/Drivers/Peripheral/TWI.h"
+#include "i2c.h"
 #include "matrix.h"
 #include "mousekey.h"
 #include "print.h"
@@ -36,7 +36,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "suspend.h"
 #include <util/atomic.h>
 #include <string.h>
+#if TOUCHPAD_IS_CIRQUE
 #include "pinnacle.h"
+#else
+#include "proxsense.h"
+#endif
 
 // row0   a2   PF5
 // row1   a3   PF4
@@ -72,6 +76,7 @@ static uint32_t scan_count;
 
 static bool trackpad_up = false;
 static uint16_t retry_trackpad = 0;
+static bool trackpad_last_empty = false;
 
 static inline void select_row(uint8_t row) {
   uint8_t pin = row_pins[row];
@@ -122,6 +127,7 @@ void matrix_power_up(void) {
 }
 
 void matrix_init(void) {
+  twi_init(200000UL);
   sx1509_init();
 
   for (uint8_t col = 0; col < MATRIX_COLS/2; col++) {
@@ -246,9 +252,27 @@ void process_trackpad(void) {
     return;
   }
 
+  struct TrackpadData empty;
+  memset(&empty, 0, sizeof(empty));
+  // is this is an empty record?
+  if (memcmp(&empty, &data, sizeof(data)) == 0) {
+    if (trackpad_last_empty) {
+      // We sent one last time, so there is no need to update
+      // and flush (incurring latency overhead) this time
+      return;
+    }
+    trackpad_last_empty = true;
+  } else {
+    trackpad_last_empty = false;
+  }
+
 #if 1
   // Feed the touchpad data into the mouse report
+#if TOUCHPAD_IS_CIRQUE
   mousekey_set_xyvh(data.xDelta, -data.yDelta, data.wheel, 0);
+#else
+  mousekey_set_xyvh(data.xDelta, -data.yDelta, data.yWheel, data.xWheel);
+#endif
   if (data.buttons & 1) {
     mousekey_on(KC_MS_BTN1);
   } else {

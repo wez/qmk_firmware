@@ -3,7 +3,9 @@
 #include "pincontrol.h"
 #ifdef MOUSEKEY_ENABLE
 #include "mousekey.h"
+#if TOUCHPAD_IS_CIRQUE
 #include "pinnacle.h"
+#endif
 #endif
 
 // Each layer gets a name for readability, which is then used in the keymap matrix below.
@@ -147,11 +149,13 @@ void action_function(keyrecord_t *record, uint8_t id, uint8_t opt) {
       return;
     case FNPANNING:
 #ifdef MOUSEKEY_ENABLE
+#if TOUCHPAD_IS_CIRQUE
       if (IS_RELEASED(record->event)) {
         trackpad_set_mode(MovePointer);
       } else {
         trackpad_set_mode(Panning);
       }
+#endif
 #endif
       return;
   }

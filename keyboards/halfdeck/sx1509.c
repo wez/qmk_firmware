@@ -19,19 +19,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "pincontrol.h"
 #include "debug.h"
 
-#include "lib/lufa/LUFA/Drivers/Peripheral/TWI.h"
-#include "lib/lufa/LUFA/Drivers/Peripheral/AVR8/TWI_AVR8.c"
-
+#include "i2c.h"
 
 // Controls the SX1509 16 pin I/O expander
 static bool initialized;
 static uint8_t reinit_counter;
 
 #define i2cAddress 0x3e // Configurable with jumpers
-#define i2cTimeout 200 // milliseconds
 enum sx1509_registers {
   RegReset = 0x7d,
-	RegDirA = 0x0f,
+  RegDirA = 0x0f,
   RegDirB = 0x0e,
   RegPullUpA = 0x07,
   RegPullUpB = 0x06,
@@ -39,33 +36,9 @@ enum sx1509_registers {
   DataB = 0x10,
 };
 
-static const char *twi_err_str(uint8_t res) {
-  switch (res) {
-    case TWI_ERROR_NoError: return "OK";
-    case TWI_ERROR_BusFault: return "BUSFAULT";
-    case TWI_ERROR_BusCaptureTimeout: return "BUSTIMEOUT";
-    case TWI_ERROR_SlaveResponseTimeout: return "SLAVETIMEOUT";
-    case TWI_ERROR_SlaveNotReady: return "SLAVENOTREADY";
-    case TWI_ERROR_SlaveNAK: return "SLAVENAK";
-    default: return "UNKNOWN";
-  }
-}
-
-static bool write_one(uint8_t reg, uint8_t val) {
-  uint8_t addr = reg;
-  uint8_t result = TWI_WritePacket(i2cAddress << 1, i2cTimeout, &addr, sizeof(addr),
-                                   &val, sizeof(val));
-  if (result) {
-    xprintf("sx1509: set_register %d = %d failed: %s\n", reg, val, twi_err_str(result));
-  }
-  return result == 0;
-}
-
-#define set_reg(reg, val) if (!write_one(reg, val)) { goto done; }
+#define set_reg(reg, val) if (!twi_write_register(i2cAddress, reg, val)) { goto done; }
 
 bool sx1509_init(void) {
-  TWI_Init(TWI_BIT_PRESCALE_1, TWI_BITLENGTH_FROM_FREQ(1, 200000UL));
-
   initialized = false;
 
   // Software reset
@@ -127,27 +100,7 @@ bool sx1509_unselect_row(uint8_t row) {
 }
 
 bool read_one(uint8_t reg, uint8_t *val) {
-  uint8_t addr = reg;
-  uint8_t result;
-
-  for (int i = 0; i < 1; i++) {
-    result = TWI_ReadPacket(i2cAddress << 1, i2cTimeout, &addr,
-                                  sizeof(addr), val, 1);
-    if (result == TWI_ERROR_SlaveNotReady) {
-      _delay_ms(1);
-      continue;
-    }
-    break;
-  }
-  if (result) {
-    xprintf("sx1509: read reg %d: %s\n", reg, twi_err_str(result));
-    // I'd like to do this here, but when I do, I'm never able to
-    // get a reliable read from the device, so we just accept a
-    // failed read every so often; we treat it as no keys held.
-    //    initialized = false;
-    return false;
-  }
-  return true;
+  return twi_read_register(i2cAddress, reg, val);
 }
 
 // Read all 16 inputs and return them

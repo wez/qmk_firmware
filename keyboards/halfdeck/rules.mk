@@ -10,7 +10,7 @@ OPT_DEFS += -DINTERRUPT_CONTROL_ENDPOINT
 OPT_DEFS += -DBOOTLOADER_SIZE=4096
 
 CUSTOM_MATRIX = yes          # We have a custom matrix
-SRC = matrix.c sx1509.c pinnacle.cpp
+SRC = matrix.c sx1509.c proxsense.cpp i2c.c
 
 
 # Build Options

@@ -385,6 +385,10 @@ bool ProxSense::init() {
     print("failed to set scroll distance\n");
     return false;
   }
+  if (!write(HoldTimeMs, uint16_t(100))) {
+    print("failed to set HoldTimeMs\n");
+    return false;
+  }
 
   endCommunicationWindow();
 
